@@ -23,8 +23,19 @@ That split is necessary because Microsoft Power BI Modeling MCP can connect and 
 
 ```bash
 npm install
+npm run setup
 npm run build
 ```
+
+`npm run setup` asks for:
+
+- Azure app display name
+- Directory tenant ID/domain
+- Application client ID
+- Client secret value
+- Microsoft `powerbi-modeling-mcp` command and args
+
+It writes a local `.env` file with mode `0600`. The MCP server loads this file automatically on start.
 
 ## Claude Desktop config
 
@@ -84,6 +95,7 @@ Power BI tenant/admin requirements:
 - Enable **Allow service principals to use Power BI APIs**.
 - Add the service principal to the relevant workspaces, or to an allowed security group.
 - App/API permissions should allow workspace and dataset reads. In practice this normally means Power BI REST API application permissions such as `Workspace.Read.All` and `Dataset.Read.All`, with admin consent where required.
+- **Power BI Remote MCP Preview** is a separate tenant setting for Microsoft's hosted remote MCP endpoint. It is not the same as allowing service principals to call Power BI APIs.
 
 ## Usage Examples
 

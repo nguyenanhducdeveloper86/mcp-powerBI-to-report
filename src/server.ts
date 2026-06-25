@@ -3,8 +3,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { AuthManager } from "./auth.js";
+import { loadEnvFile } from "./env.js";
 import { ModelingMcpBridge } from "./modelingMcpBridge.js";
 import { PowerBiClient } from "./powerbiClient.js";
+
+loadEnvFile();
 
 const auth = new AuthManager();
 const powerbi = new PowerBiClient(auth);
