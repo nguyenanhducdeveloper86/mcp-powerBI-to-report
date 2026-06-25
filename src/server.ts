@@ -11,6 +11,7 @@ loadEnvFile();
 
 const auth = new AuthManager();
 const powerbi = new PowerBiClient(auth);
+const modelingBridge = new ModelingMcpBridge();
 
 const server = new McpServer({
   name: "mcp-powerbi",
@@ -93,11 +94,45 @@ server.registerTool(
     }
   },
   async ({ workspaceName }) => {
-    const bridge = new ModelingMcpBridge();
     return jsonResult({
       source: "microsoft-powerbi-modeling-mcp",
       workspaceName,
-      semanticModels: await bridge.listSemanticModelsInWorkspace(workspaceName)
+      semanticModels: await modelingBridge.listSemanticModelsInWorkspace(workspaceName)
+    });
+  }
+);
+
+server.registerTool(
+  "execute_dax_query",
+  {
+    title: "Execute DAX query with CEO defaults",
+    description: "Execute a DAX query against a Power BI semantic model using default workspace/model when omitted. This keeps the Microsoft Modeling MCP process alive to reduce repeated login prompts.",
+    inputSchema: {
+      query: z.string().describe("DAX query text, for example EVALUATE ROW(\"Revenue\", SUM(Visits[TreatmentCost]))."),
+      workspaceName: z.string().optional().describe("Power BI workspace name. Defaults to POWERBI_DEFAULT_WORKSPACE."),
+      semanticModelName: z.string().optional().describe("Semantic model name. Defaults to POWERBI_DEFAULT_SEMANTIC_MODEL."),
+      maxRows: z.number().int().positive().optional().default(100),
+      timeoutSeconds: z.number().int().positive().optional().default(120)
+    }
+  },
+  async ({ query, workspaceName, semanticModelName, maxRows, timeoutSeconds }) => {
+    const workspace = workspaceName || process.env.POWERBI_DEFAULT_WORKSPACE;
+    const model = semanticModelName || process.env.POWERBI_DEFAULT_SEMANTIC_MODEL;
+    if (!workspace || !model) {
+      throw new Error("Missing workspace/model. Set POWERBI_DEFAULT_WORKSPACE and POWERBI_DEFAULT_SEMANTIC_MODEL, or pass workspaceName and semanticModelName.");
+    }
+
+    return jsonResult({
+      source: "microsoft-powerbi-modeling-mcp",
+      workspaceName: workspace,
+      semanticModelName: model,
+      result: await modelingBridge.executeDaxQuery({
+        workspaceName: workspace,
+        semanticModelName: model,
+        query,
+        maxRows,
+        timeoutSeconds
+      })
     });
   }
 );

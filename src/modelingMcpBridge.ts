@@ -1,10 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-const DEFAULT_MODELING_COMMAND = process.env.POWERBI_MODELING_MCP_COMMAND || "npx";
-const DEFAULT_MODELING_ARGS = process.env.POWERBI_MODELING_MCP_ARGS
-  ? splitArgs(process.env.POWERBI_MODELING_MCP_ARGS)
-  : ["-y", "@microsoft/powerbi-modeling-mcp@latest", "--start"];
-
 export type XmlaSemanticModel = {
   id: string;
   name: string;
@@ -28,47 +23,113 @@ export class ModelingMcpBridge {
   private buffer = "";
   private nextId = 1;
   private pending = new Map<number, Pending>();
+  private currentConnection?: {
+    workspaceName: string;
+    semanticModelName: string;
+    connectionName?: string;
+  };
 
   async listSemanticModelsInWorkspace(workspaceName: string): Promise<XmlaSemanticModel[]> {
     await this.start();
-    try {
-      const connect = await this.callTool("connection_operations", {
-        request: {
-          operation: "Connect",
-          dataSource: `powerbi://api.powerbi.com/v1.0/myorg/${workspaceName}`
-        }
-      });
-      if (connect.result?.isError) {
-        throw new Error(extractMessage(connect) || `Failed to connect to workspace ${workspaceName}`);
+    const connect = await this.callTool("connection_operations", {
+      request: {
+        operation: "Connect",
+        dataSource: `powerbi://api.powerbi.com/v1.0/myorg/${workspaceName}`
       }
-
-      const databases = await this.callTool("database_operations", {
-        request: { operation: "List" }
-      });
-      if (databases.result?.isError) {
-        throw new Error(extractMessage(databases) || `Failed to list semantic models in ${workspaceName}`);
-      }
-      const payload = parseToolJson(databases);
-      return (payload?.data ?? []).map((db: Record<string, unknown>) => ({
-        id: String(db.id ?? ""),
-        name: String(db.name ?? ""),
-        state: optionalString(db.state),
-        compatibilityLevel: optionalNumber(db.compatibilityLevel),
-        modelType: optionalString(db.modelType),
-        estimatedSize: optionalNumber(db.estimatedSize),
-        lastProcessed: optionalString(db.lastProcessed),
-        lastUpdate: optionalString(db.lastUpdate),
-        lastSchemaUpdate: optionalString(db.lastSchemaUpdate)
-      })).filter((m: XmlaSemanticModel) => m.id && m.name);
-    } finally {
-      await this.callTool("connection_operations", { request: { operation: "Disconnect" } }).catch(() => undefined);
-      this.stop();
+    });
+    if (connect.result?.isError) {
+      throw new Error(extractMessage(connect) || `Failed to connect to workspace ${workspaceName}`);
     }
+
+    const databases = await this.callTool("database_operations", {
+      request: { operation: "List" }
+    });
+    if (databases.result?.isError) {
+      throw new Error(extractMessage(databases) || `Failed to list semantic models in ${workspaceName}`);
+    }
+    const payload = parseToolJson(databases);
+    return (payload?.data ?? []).map((db: Record<string, unknown>) => ({
+      id: String(db.id ?? ""),
+      name: String(db.name ?? ""),
+      state: optionalString(db.state),
+      compatibilityLevel: optionalNumber(db.compatibilityLevel),
+      modelType: optionalString(db.modelType),
+      estimatedSize: optionalNumber(db.estimatedSize),
+      lastProcessed: optionalString(db.lastProcessed),
+      lastUpdate: optionalString(db.lastUpdate),
+      lastSchemaUpdate: optionalString(db.lastSchemaUpdate)
+    })).filter((m: XmlaSemanticModel) => m.id && m.name);
+  }
+
+  async executeDaxQuery(options: {
+    workspaceName: string;
+    semanticModelName: string;
+    query: string;
+    maxRows?: number;
+    timeoutSeconds?: number;
+  }): Promise<unknown> {
+    await this.connectFabric(options.workspaceName, options.semanticModelName);
+    const response = await this.callTool("dax_query_operations", {
+      request: {
+        operation: "Execute",
+        query: options.query,
+        maxRows: options.maxRows ?? 100,
+        timeoutSeconds: options.timeoutSeconds ?? 120,
+        getExecutionMetrics: false
+      }
+    });
+    if (response.result?.isError) {
+      throw new Error(extractMessage(response) || "DAX query failed.");
+    }
+    return parseToolJson(response) ?? {};
+  }
+
+  async connectFabric(workspaceName: string, semanticModelName: string): Promise<void> {
+    await this.start();
+    if (
+      this.currentConnection?.workspaceName === workspaceName &&
+      this.currentConnection?.semanticModelName === semanticModelName
+    ) {
+      return;
+    }
+
+    const response = await this.callTool("connection_operations", {
+      request: {
+        operation: "ConnectFabric",
+        workspaceName,
+        semanticModelName
+      }
+    });
+    if (response.result?.isError) {
+      throw new Error(extractMessage(response) || `Failed to connect to ${workspaceName}/${semanticModelName}`);
+    }
+    const payload = parseToolJson(response);
+    this.currentConnection = {
+      workspaceName,
+      semanticModelName,
+      connectionName: optionalString(payload?.data?.connectionName)
+    };
   }
 
   private async start(): Promise<void> {
-    this.child = spawn(DEFAULT_MODELING_COMMAND, DEFAULT_MODELING_ARGS, {
+    if (this.child) return;
+
+    const command = process.env.POWERBI_MODELING_MCP_COMMAND || "npx";
+    const args = process.env.POWERBI_MODELING_MCP_ARGS
+      ? splitArgs(process.env.POWERBI_MODELING_MCP_ARGS)
+      : ["-y", "@microsoft/powerbi-modeling-mcp@latest", "--start"];
+
+    this.child = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"]
+    });
+    this.child.on("exit", () => {
+      this.child = undefined;
+      this.currentConnection = undefined;
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("Microsoft Modeling MCP process exited."));
+      }
+      this.pending.clear();
     });
     this.child.stdout.on("data", chunk => {
       this.buffer += chunk.toString();
@@ -86,9 +147,10 @@ export class ModelingMcpBridge {
     this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
   }
 
-  private stop(): void {
+  stop(): void {
     this.child?.kill("SIGTERM");
     this.child = undefined;
+    this.currentConnection = undefined;
     this.pending.clear();
   }
 
