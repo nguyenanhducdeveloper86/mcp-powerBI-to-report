@@ -2,14 +2,14 @@
   "mcpServers": {
     "mcp-powerBI-to-report": {
       "command": "node",
-      "args": ["/Users/ducna/mcp-powerBI-to-report/dist/server.js"],
+      "args": ["/absolute/path/to/mcp-powerBI-to-report/dist/server.js"],
       "env": {
-        "POWERBI_TENANT": "vnu.edu.vn",
-        "POWERBI_CLIENT_ID": "<azure-app-client-id>",
-        "POWERBI_CLIENT_SECRET": "<azure-app-client-secret>",
-        "POWERBI_MODELING_MCP_COMMAND": "/Users/ducna/.codex/mcp/powerbi-modeling-mcp/node_modules/@microsoft/powerbi-modeling-mcp-darwin-arm64/dist/powerbi-modeling-mcp",
-        "POWERBI_MODELING_MCP_ARGS": "--start",
-        "POWERBI_REPORT_OUTPUT_DIR": "/Users/ducna/powerbi-report-output"
+        "POWERBI_KNOWN_WORKSPACES": "test-mcp",
+        "POWERBI_DEFAULT_WORKSPACE": "test-mcp",
+        "POWERBI_DEFAULT_SEMANTIC_MODEL": "sale_vehicle-vf",
+        "POWERBI_MODELING_MCP_COMMAND": "/absolute/path/to/powerbi-modeling-mcp",
+        "POWERBI_MODELING_MCP_ARGS": "--start --authmode=interactive",
+        "POWERBI_REPORT_OUTPUT_DIR": "/absolute/path/to/powerbi-report-output"
       }
     }
   }

@@ -155,7 +155,7 @@ export class ModelingMcpBridge {
   }
 
   private async callTool(name: string, args: unknown): Promise<any> {
-    return this.send("tools/call", { name, arguments: args }, 120_000);
+    return this.send("tools/call", { name, arguments: args }, 300_000);
   }
 
   private send(method: string, params: unknown, timeoutMs = 30_000): Promise<any> {
@@ -193,13 +193,84 @@ export class ModelingMcpBridge {
 }
 
 function parseToolJson(response: any): any {
-  const text = (response.result?.content ?? []).map((c: any) => c.text ?? "").join("\n").trim();
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { rawText: text };
+  const content = response.result?.content ?? [];
+  const text = content.map((c: any) => c.text ?? "").join("\n").trim();
+  const resources = content
+    .map((c: any) => c.resource)
+    .filter((resource: any) => resource?.mimeType === "text/csv" && typeof resource.text === "string");
+
+  const csvRows = resources.flatMap((resource: any) => parseCsv(resource.text));
+  if (!text) {
+    return csvRows.length ? { data: csvRows } : undefined;
   }
+
+  try {
+    const payload = JSON.parse(text);
+    if (csvRows.length && isRecord(payload)) return { ...payload, data: csvRows };
+    if (csvRows.length) return { data: csvRows, text: payload };
+    return payload;
+  } catch {
+    return csvRows.length ? { rawText: text, data: csvRows } : { rawText: text };
+  }
+}
+
+function parseCsv(input: string): Record<string, unknown>[] {
+  const rows = input
+    .split(/\r?\n/)
+    .filter(line => line.trim().length > 0)
+    .map(parseCsvLine);
+  const headers = rows.shift();
+  if (!headers?.length) return [];
+
+  return rows.map(row => Object.fromEntries(headers.map((header, index) => [
+    cleanCsvHeader(header),
+    coerceCsvValue(row[index] ?? "")
+  ])));
+}
+
+function parseCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  values.push(current);
+  return values;
+}
+
+function cleanCsvHeader(value: string): string {
+  const trimmed = value.trim();
+  const measure = trimmed.match(/^\[([^\]]+)\]$/);
+  return measure?.[1] ?? trimmed;
+}
+
+function coerceCsvValue(value: string): string | number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+  if (/^-?\d+\.\d+$/.test(trimmed)) return Number(trimmed);
+  if (/^-?\d+,\d+$/.test(trimmed)) return Number(trimmed.replace(",", "."));
+  if (/^-?\d{1,3}(\.\d{3})+,\d+$/.test(trimmed)) return Number(trimmed.replace(/\./g, "").replace(",", "."));
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(trimmed)) return Number(trimmed.replace(/,/g, ""));
+  return trimmed;
 }
 
 function extractMessage(response: any): string | undefined {
@@ -213,6 +284,10 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function splitArgs(input: string): string[] {

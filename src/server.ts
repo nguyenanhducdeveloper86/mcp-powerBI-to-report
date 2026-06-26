@@ -172,7 +172,7 @@ server.registerTool(
   "execute_dax_report_query",
   {
     title: "Execute DAX query and build HTML executive report",
-    description: "Execute a DAX query against a Power BI semantic model and return both a concise text answer and a self-contained HTML dashboard/report for executive review. Prefer this tool for boss/CEO business questions.",
+    description: "Execute a DAX query against a Power BI semantic model and return both a concise text answer and a self-contained HTML dashboard/report for executive review. Prefer this tool for boss/CEO business questions. For questions such as 'which month had the highest/lowest revenue and why', write DAX that returns a month column, a revenue/sales metric column, and when possible explanatory drivers such as orders, customers, average ticket, product/category, region, or channel.",
     inputSchema: {
       question: z.string().describe("The business question from the executive user."),
       query: z.string().describe("DAX query text, for example EVALUATE ROW(\"Revenue\", SUM(Visits[TreatmentCost]))."),
@@ -200,7 +200,7 @@ server.registerTool(
   "execute_dax_dashboard_query",
   {
     title: "Execute DAX query and build HTML dashboard",
-    description: "Alias for execute_dax_report_query kept for compatibility with earlier dashboard workflows.",
+    description: "Alias for execute_dax_report_query kept for compatibility with earlier dashboard workflows. For revenue-by-month questions, return month, revenue/sales, and available driver columns so the report can explain highest and lowest months.",
     inputSchema: {
       question: z.string().describe("The business question from the executive user."),
       query: z.string().describe("DAX query text, for example EVALUATE ROW(\"Revenue\", SUM(Visits[TreatmentCost]))."),
@@ -265,6 +265,7 @@ async function reportResult(options: {
           semanticModelName: model,
           question: options.question,
           summary: dashboard.summary,
+          insights: dashboard.insights,
           reportPath: dashboard.dashboardPath,
           reportUri: dashboard.dashboardUri,
           generatedAt: dashboard.generatedAt,
@@ -287,6 +288,7 @@ async function reportResult(options: {
       semanticModelName: model,
       question: options.question,
       summary: dashboard.summary,
+      insights: dashboard.insights,
       reportPath: dashboard.dashboardPath,
       reportUri: dashboard.dashboardUri,
       dashboardPath: dashboard.dashboardPath,
