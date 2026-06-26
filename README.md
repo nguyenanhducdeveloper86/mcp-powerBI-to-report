@@ -2,22 +2,11 @@
 
 Claude-compatible MCP server for discovering Fabric/Power BI workspaces, querying semantic models, and returning executive answers as both text and self-contained HTML reports.
 
-This repo is based on Microsoft's official [`powerbi-modeling-mcp`](https://github.com/microsoft/powerbi-modeling-mcp):
-
-- `get_catalog`, `list_workspaces`, and `list_semantic_models` use the Power BI REST API for tenant/workspace discovery.
-- `list_semantic_models_in_workspace_via_modeling_mcp` launches Microsoft `@microsoft/powerbi-modeling-mcp` and uses its XMLA/TOM auth path to enumerate semantic models inside a known workspace.
-
-That split is necessary because Microsoft Power BI Modeling MCP can connect and model/query semantic models, but it does not expose a tenant-wide workspace discovery tool.
+This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com/microsoft/powerbi-modeling-mcp). It relies entirely on the XMLA/TOM authentication path provided by that official tool.
 
 ## Tools
 
-- `auth_status`
-- `start_device_login`
-- `complete_device_login`
-- `list_workspaces`
-- `list_semantic_models`
-- `get_catalog`
-- `list_semantic_models_in_workspace_via_modeling_mcp`
+- `list_semantic_models_in_workspace`
 - `get_known_workspace_catalog`
 - `execute_dax_query`
 - `execute_dax_report_query`
@@ -48,10 +37,6 @@ node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp
 
 `npm run setup` asks for:
 
-- Azure app display name
-- Directory tenant ID/domain
-- Application client ID
-- Client secret value
 - Microsoft `powerbi-modeling-mcp` command and args
 - Known workspace names
 - Default CEO workspace
@@ -206,36 +191,18 @@ npm run setup:agent -- --workspaces your-workspace-name --write-desktop-config
 
 ## Authentication
 
-The server checks auth in this order:
-
-1. `POWERBI_ACCESS_TOKEN` — direct token override
-2. Service principal: `POWERBI_TENANT`, `POWERBI_CLIENT_ID`, `POWERBI_CLIENT_SECRET`
-3. Cached delegated user token from `start_device_login` / `complete_device_login`
-
-For production Claude usage, service principal is the most reliable option.
-
-Power BI tenant/admin requirements:
-
-- Enable **Allow service principals to use Power BI APIs**.
-- Add the service principal to the relevant workspaces, or to an allowed security group.
-- App/API permissions should allow workspace and dataset reads (`Workspace.Read.All`, `Dataset.Read.All` with admin consent where required).
-- **Power BI Remote MCP Preview** is a separate tenant setting for Microsoft's hosted remote MCP endpoint. It is not the same as allowing service principals to call Power BI APIs.
+This MCP entirely delegates authentication to the underlying Microsoft `@microsoft/powerbi-modeling-mcp` tool. 
+It uses Microsoft's interactive device flow or explicit credential arguments configured via `POWERBI_MODELING_MCP_ARGS`.
 
 ## Usage Examples
 
 Ask Claude:
 
 ```text
-Use mcp-powerBI-to-report to get the full catalog of workspaces and semantic models.
+Use mcp-powerBI-to-report to list semantic models in workspace test-mcp.
 ```
 
-or:
-
-```text
-Use mcp-powerBI-to-report to list semantic models in workspace test-mcp via Microsoft Modeling MCP.
-```
-
-The second path works when the workspace name is already known and Microsoft `powerbi-modeling-mcp` can authenticate to XMLA. If the workspace/model is not provided, Claude should call `get_catalog` first. If REST authentication is unavailable, Claude should ask the user for the workspace name instead of guessing.
+The workspace name must be known and provided. If the workspace/model is not provided, Claude should ask the user for the workspace name instead of guessing.
 
 For a CEO workflow, set:
 
@@ -248,7 +215,7 @@ POWERBI_DEFAULT_WORKSPACE=test-mcp
 # POWERBI_REPORT_OUTPUT_DIR=/path/to/powerbi-report-output
 ```
 
-Then Claude can use `get_known_workspace_catalog` to list models from configured workspaces without REST auth, choose the relevant semantic model from schema/context, and call `execute_dax_report_query` for follow-up business questions. The wrapper keeps the Microsoft Modeling MCP process alive, so repeated questions reuse the same process and reduce repeated login prompts.
+Then Claude can use `get_known_workspace_catalog` to list models from configured workspaces, choose the relevant semantic model from schema/context, and call `execute_dax_report_query` for follow-up business questions. The wrapper keeps the Microsoft Modeling MCP process alive, so repeated questions reuse the same process and reduce repeated login prompts.
 
 `execute_dax_report_query` returns:
 
@@ -335,7 +302,5 @@ npm run dev
 
 ## Notes
 
-- `list_workspaces` uses `GET https://api.powerbi.com/v1.0/myorg/groups`.
-- `list_semantic_models` uses `GET /datasets` for My workspace or `GET /groups/{groupId}/datasets` for a workspace.
 - The Microsoft Modeling MCP bridge uses `npx -y @microsoft/powerbi-modeling-mcp@latest --start` by default. Override with `POWERBI_MODELING_MCP_COMMAND` and `POWERBI_MODELING_MCP_ARGS` if you have a signed local binary.
 - Local verification notes are in [`docs/verification.md`](docs/verification.md).
