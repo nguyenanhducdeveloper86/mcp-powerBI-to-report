@@ -108,6 +108,50 @@ Full config with explicit env overrides:
 }
 ```
 
+macOS example — Apple Silicon (M1/M2/M3):
+
+```json
+{
+  "mcpServers": {
+    "mcp-powerBI-to-report": {
+      "command": "node",
+      "args": ["/Users/<you>/mcp-powerBI-to-report/dist/server.js"],
+      "env": {
+        "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
+        "POWERBI_DEFAULT_WORKSPACE": "your-workspace-name",
+        "POWERBI_DEFAULT_SEMANTIC_MODEL": "your-model-name",
+        "POWERBI_MODELING_MCP_COMMAND": "/Users/<you>/mcp-powerBI-to-report/node_modules/@microsoft/powerbi-modeling-mcp-darwin-arm64/dist/powerbi-modeling-mcp",
+        "POWERBI_MODELING_MCP_ARGS": "--start --authmode=interactive",
+        "POWERBI_REPORT_OUTPUT_DIR": "/Users/<you>/powerbi-report-output"
+      }
+    }
+  }
+}
+```
+
+macOS example — Intel (x64):
+
+```json
+{
+  "mcpServers": {
+    "mcp-powerBI-to-report": {
+      "command": "node",
+      "args": ["/Users/<you>/mcp-powerBI-to-report/dist/server.js"],
+      "env": {
+        "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
+        "POWERBI_DEFAULT_WORKSPACE": "your-workspace-name",
+        "POWERBI_DEFAULT_SEMANTIC_MODEL": "your-model-name",
+        "POWERBI_MODELING_MCP_COMMAND": "/Users/<you>/mcp-powerBI-to-report/node_modules/@microsoft/powerbi-modeling-mcp-darwin-x64/dist/powerbi-modeling-mcp",
+        "POWERBI_MODELING_MCP_ARGS": "--start --authmode=interactive",
+        "POWERBI_REPORT_OUTPUT_DIR": "/Users/<you>/powerbi-report-output"
+      }
+    }
+  }
+}
+```
+
+> **macOS note:** `npm install` automatically ad-hoc signs the Microsoft native binary. If Claude Desktop shows an error launching the binary, run `npm install` again from the project directory, then restart Claude Desktop.
+
 Windows example:
 
 ```json
@@ -128,6 +172,8 @@ Windows example:
   }
 }
 ```
+
+> **Windows note:** Do not use `npx` as `POWERBI_MODELING_MCP_COMMAND`. Always point directly to the `.exe` binary path above.
 
 A ready-to-edit example file is at [`docs/claude-desktop-config.example.json`](docs/claude-desktop-config.example.json).
 
