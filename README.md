@@ -8,6 +8,8 @@ This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com
 
 - `list_semantic_models_in_workspace`
 - `get_known_workspace_catalog`
+- `plan_multi_semantic_report`
+- `execute_multi_semantic_report`
 - `execute_dax_query`
 - `execute_dax_report_query`
 - `execute_dax_dashboard_query` (compatibility alias)
@@ -267,6 +269,67 @@ Then Claude can use `get_known_workspace_catalog` to list models from configured
 - `reportPath` and `reportUri` for opening the generated local `.html` file
 
 Use `execute_dax_query` only when raw query output is enough.
+
+### Multi-semantic executive reports
+
+One CEO question can require evidence from more than one semantic model. For example, revenue may live in `sale_vehicle-vf`, while campaign spend, leads, inventory, dealer coverage, or finance margin can live in separate semantic models.
+
+Recommended agent flow:
+
+```text
+question
+→ get_known_workspace_catalog
+→ plan_multi_semantic_report
+→ write one DAX query per semantic model/evidence role
+→ execute_multi_semantic_report
+→ return text answer + HTML report
+```
+
+`plan_multi_semantic_report` helps the agent decide:
+
+- whether one or multiple semantic models are needed
+- decision intent such as `variance_decomposition`, `opportunity_prioritization`, `portfolio_decision`, or `forecast_risk`
+- required evidence
+- recommended model roles
+- join grain and join keys
+- dashboard blocks for the ReportSpec
+- warnings when evidence is missing or cannot prove causality
+
+`execute_multi_semantic_report` accepts multiple DAX queries:
+
+```json
+{
+  "question": "Doanh thu VF tháng nào cao nhất và tại sao?",
+  "grain": "Month x Province x Model",
+  "joinKeys": ["Month", "Province", "Model"],
+  "queries": [
+    {
+      "workspaceName": "test-mcp",
+      "semanticModelName": "sale_vehicle-vf",
+      "evidenceRole": "sales",
+      "evidence": ["Revenue", "UnitsSold", "Model", "Province"],
+      "query": "EVALUATE ..."
+    },
+    {
+      "workspaceName": "test-mcp",
+      "semanticModelName": "marketing-vf",
+      "evidenceRole": "marketing",
+      "evidence": ["CampaignSpend", "Leads", "ConversionRate"],
+      "query": "EVALUATE ..."
+    }
+  ]
+}
+```
+
+The report tags rows with `DataSource`, `WorkspaceName`, `SemanticModelName`, and `EvidenceRole`, then renders one executive dashboard with:
+
+- data sources and evidence quality
+- join grain, join keys, and confidence
+- validation warnings when semantic models are at different grains
+- executive insight cards
+- contribution, cross-dimension pockets, risk watch, and next questions
+
+Important rule: if semantic models do not share the requested grain, the report should describe cross-source findings as directional correlation, not proven causality.
 
 ### Revenue month extremes
 

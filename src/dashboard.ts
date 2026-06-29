@@ -65,6 +65,9 @@ export async function buildDashboardResponse(request) {
     insightCards: business.insightCards,
     dataProfile: business.dataProfile,
     nextQuestions: business.nextQuestions,
+    dataSources: request.dataSources ?? [],
+    joinPlan: request.joinPlan,
+    validationWarnings: request.validationWarnings ?? [],
     rows: table.rows,
     columns: table.columns,
     generatedAt
@@ -86,7 +89,7 @@ function detectReportIntent(question, rows, columns): ReportIntent {
   const revenueCol = findRevenueColumn(rows, columns);
   const numericCols = columns.filter(c => rows.some(r => typeof r[c] === "number"));
   const dimCols = columns.filter(
-    c => c !== "Scope" && c !== "Dimension" && c !== "Member" &&
+    c => !["Scope","Dimension","Member","DataSource","EvidenceRole","WorkspaceName","SemanticModelName"].includes(c) &&
          rows.some(r => typeof r[c] === "string")
   );
   const nonMonthDimCols = dimCols.filter(c => !isMonthLikeColumn(c, rows));
@@ -334,7 +337,7 @@ function detectDimensionColumns(rows: any[], columns: string[]) {
     if (scopedDims.length) return scopedDims;
   }
   return columns.filter(c => {
-    if (["Scope","Dimension","Member"].includes(c)) return false;
+    if (["Scope","Dimension","Member","DataSource","EvidenceRole","WorkspaceName","SemanticModelName"].includes(c)) return false;
     if (rows.some(r => typeof r[c] !== "string")) return false;
     const uniqueCount = unique(rows.map(r => String(r[c] ?? "").trim()).filter(Boolean)).length;
     return uniqueCount >= 2;
@@ -742,6 +745,28 @@ function renderDecisionCards(rows: any[]): string {
   </div>`).join("")}</div>`;
 }
 
+function renderDataSourceSection(input: any): string {
+  const sources = input.dataSources ?? [];
+  const warnings = input.validationWarnings ?? [];
+  const joinPlan = input.joinPlan;
+  if (!sources.length && !warnings.length && !joinPlan) return "";
+  return `<section class="panel">
+    <h2>Data sources and evidence quality</h2>
+    ${sources.length ? `<div class="source-list">${sources.map(source => `<div class="source-card">
+      <b>${escapeHtml(source.semanticModelName ?? source.name ?? "Semantic model")}</b>
+      <span>Workspace: ${escapeHtml(source.workspaceName ?? "")}</span>
+      <span>Evidence: ${escapeHtml((source.evidence ?? source.evidenceRole ?? []).toString())}</span>
+      <span>Rows: ${escapeHtml(formatNumber(source.rowCount ?? 0))}</span>
+    </div>`).join("")}</div>` : ""}
+    ${joinPlan ? `<div style="margin-top:14px" class="driver-tree">
+      <div class="tree-row"><span>Join grain</span><strong>${escapeHtml(joinPlan.grain ?? "not specified")}</strong></div>
+      <div class="tree-row"><span>Join keys</span><strong>${escapeHtml((joinPlan.joinKeys ?? []).join(", ") || "not specified")}</strong></div>
+      <div class="tree-row"><span>Confidence</span><strong>${escapeHtml(joinPlan.confidence ?? "directional")}</strong></div>
+    </div>` : ""}
+    ${warnings.length ? `<div style="margin-top:14px" class="driver-tree">${warnings.map(warning => `<div class="tree-row"><span>${escapeHtml(warning)}</span><strong>Warning</strong></div>`).join("")}</div>` : ""}
+  </section>`;
+}
+
 // ═══════════════════════════════════════════════════════
 // KPI cards (mode-aware)
 // ═══════════════════════════════════════════════════════
@@ -908,6 +933,10 @@ function renderDashboardHtml(input) {
     .alert-card.high { border-top-color: var(--red); } .alert-card.ok { border-top-color: var(--green); }
     .alert-card b { display: block; margin-bottom: 5px; } .alert-card p { font-size: 12px; line-height: 1.4; }
     .mode-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: #eef3f8; color: #344054; margin-bottom: 14px; }
+    .source-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .source-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfd; break-inside: avoid; }
+    .source-card b { display: block; margin-bottom: 5px; }
+    .source-card span { display: block; color: var(--muted); font-size: 12px; line-height: 1.35; }
     .decision-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
     .decision-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfd; break-inside: avoid; }
     .decision-card b { display: block; margin-bottom: 7px; font-size: 14px; }
@@ -927,7 +956,7 @@ function renderDashboardHtml(input) {
       .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 560px) {
-      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .decision-cards, .waterfall { grid-template-columns: 1fr; }
+      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .source-list, .decision-cards, .waterfall { grid-template-columns: 1fr; }
       .bar-row { grid-template-columns: 1fr; gap: 6px; }
       .visual-row { grid-template-columns: 1fr; }
       .visual-metric { text-align: left; }
@@ -938,7 +967,7 @@ function renderDashboardHtml(input) {
       body { background: #fff; }
       main { max-width: none; padding: 0; }
       header, .panel, .card, .insight, .heat-cell, .alert-card, .mini-card, .decision-card { break-inside: avoid; box-shadow: none; }
-      .grid, .readout, .mini-cards, .heat-grid, .alert-grid, .decision-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .grid, .readout, .mini-cards, .heat-grid, .alert-grid, .source-list, .decision-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
       .exec-grid, .analysis-grid, .content { grid-template-columns: 1fr; }
       .query, .print-hidden { display: none !important; }
       .panel { margin-bottom: 12px; }
@@ -964,6 +993,8 @@ function renderDashboardHtml(input) {
     <section class="grid">
       ${kpis.map(k => `<article class="card tone-${k.tone}"><div class="label">${escapeHtml(k.label)}</div><div class="value">${escapeHtml(k.value)}</div></article>`).join("\n      ")}
     </section>
+
+    ${renderDataSourceSection(input)}
 
     ${renderBusinessInsightSection(input.business)}
 
