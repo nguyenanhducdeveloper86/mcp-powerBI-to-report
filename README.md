@@ -259,6 +259,9 @@ Then Claude can use `get_known_workspace_catalog` to list models from configured
 
 - concise text summary for chat
 - `insights` for detected executive findings such as highest/lowest revenue month and returned data drivers
+- `insightCards` with structured `what`, `why`, `soWhat`, `action`, `confidence`, evidence, and missing-data notes
+- `dataProfile` with detected measures, dimensions, row/column counts, and gaps that limit deeper root-cause analysis
+- `nextQuestions` for CEO/MBA-style drill-down prompts
 - `structuredContent` with rows, columns, and generated HTML
 - embedded MCP `text/html` resource
 - `reportPath` and `reportUri` for opening the generated local `.html` file
@@ -316,8 +319,14 @@ Reports are generated as standalone HTML files with:
 
 - KPI cards for numeric measures
 - executive answer, driver tree, revenue bridge, decision levers, and run-rate read
-- visual business insight layers for monthly performance, contribution, cross-dimension pockets, and risk watch
+- executive insight layers: `WHAT`, `WHY`, `SO WHAT`, and `NOW WHAT`
+- contribution analysis across detected dimensions
+- cross-dimension pockets such as `Province x Model`, `Region x Model`, or any dimension pair returned by the query
+- risk/opportunity watch based on returned operational drivers such as margin, discount, inventory, marketing, and market share
+- next-best business questions for CEO drill-down
 - question, workspace, semantic model, and DAX query context
+
+Raw returned rows remain available in MCP `structuredContent.rows` for audit/debug, but the HTML report is designed as a decision brief rather than a raw data table.
 
 Files are written to `POWERBI_REPORT_OUTPUT_DIR` when set, then `POWERBI_DASHBOARD_OUTPUT_DIR` for compatibility, otherwise `./powerbi-report-output` from the MCP process working directory.
 

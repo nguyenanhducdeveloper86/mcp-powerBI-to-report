@@ -40,7 +40,8 @@ export async function buildDashboardResponse(request) {
     ? analyzeRevenueMonthExtremes(request.question, monthlyRows, table.columns)
     : undefined;
 
-  const insights = buildInsights(intent, analysis, table.rows, table.columns);
+  const business = buildBusinessInsightModel(intent, analysis, table.rows, table.columns);
+  const insights = buildInsights(intent, analysis, table.rows, table.columns, business);
   const summary  = buildSummary(intent, table.rows, table.columns, analysis);
   const html     = renderDashboardHtml({
     ...request,
@@ -48,6 +49,7 @@ export async function buildDashboardResponse(request) {
     columns: table.columns,
     summary,
     insights,
+    business,
     analysis,
     intent,
     generatedAt
@@ -60,6 +62,9 @@ export async function buildDashboardResponse(request) {
     dashboardPath,
     dashboardUri: `file://${dashboardPath}`,
     html,
+    insightCards: business.insightCards,
+    dataProfile: business.dataProfile,
+    nextQuestions: business.nextQuestions,
     rows: table.rows,
     columns: table.columns,
     generatedAt
@@ -211,8 +216,14 @@ function buildSummary(intent: ReportIntent, rows: any[], columns: string[], anal
 // Insights (mode-aware)
 // ═══════════════════════════════════════════════════════
 
-function buildInsights(intent: ReportIntent, analysis: any, rows: any[], columns: string[]) {
+function buildInsights(intent: ReportIntent, analysis: any, rows: any[], columns: string[], business?: any) {
   const vi = intent.language === "vi";
+  if (business?.insightCards?.length) {
+    return business.insightCards.slice(0, 4).map(card => ({
+      title: card.what,
+      detail: [card.why, card.soWhat, card.action].filter(Boolean).join(" ")
+    }));
+  }
 
   if (intent.mode === "month-extremes" && analysis) {
     if (vi) return [
@@ -254,6 +265,466 @@ function buildInsights(intent: ReportIntent, analysis: any, rows: any[], columns
         : `${metric}: ${formatMetricValue(metric, bottomVal)}. Gap to leader: ${formatMetricValue(metric, topVal - bottomVal)}`
     }
   ];
+}
+
+// ═══════════════════════════════════════════════════════
+// Executive insight engine
+// ═══════════════════════════════════════════════════════
+
+function buildBusinessInsightModel(intent: ReportIntent, analysis: any, rows: any[], columns: string[]) {
+  const vi = intent.language === "vi";
+  const metric = analysis?.metric ?? intent.primaryMetric ?? firstNumericColumn(rows, columns);
+  const dimension = analysis?.dimension ?? intent.primaryDimension;
+  const dataProfile = buildDataProfile(rows, columns, metric);
+  const contributions = metric ? buildContributionInsights(rows, columns, metric, dataProfile) : [];
+  const crossPockets = metric ? buildCrossDimensionPockets(rows, columns, metric, dataProfile) : [];
+  const risks = metric ? buildRiskAndOpportunityWatch(rows, columns, metric, dataProfile) : [];
+  const insightCards = buildExecutiveInsightCards({ intent, analysis, rows, columns, metric, dimension, dataProfile, contributions, crossPockets, risks, vi });
+  const nextQuestions = buildNextBestQuestions({ intent, metric, dimension, dataProfile, contributions, crossPockets, risks, vi });
+
+  return {
+    mode: intent.mode,
+    metric,
+    dimension,
+    dataProfile,
+    insightCards,
+    contributions,
+    crossPockets,
+    risks,
+    nextQuestions
+  };
+}
+
+function buildDataProfile(rows: any[], columns: string[], metric?: string) {
+  const numericColumns = columns.filter(c => rows.some(r => typeof r[c] === "number"));
+  const dimensionColumns = detectDimensionColumns(rows, columns);
+  const scoped = rows.some(r => r.Scope !== undefined);
+  const scopeCounts = scoped
+    ? Object.fromEntries(unique(rows.map(r => String(r.Scope ?? "Unscoped"))).map(scope => [scope, rows.filter(r => String(r.Scope ?? "Unscoped") === scope).length]))
+    : {};
+  const driverColumns = numericColumns.filter(c => c !== metric);
+  const missing = [];
+  for (const item of [
+    ["Plan/Target", ["plan","target","budget","quota"]],
+    ["Margin", ["margin","profit","ebit"]],
+    ["Inventory", ["inventory","stock"]],
+    ["Discount", ["discount","rebate"]],
+    ["Marketing/Campaign", ["marketing","campaign","promotion"]],
+    ["Dealer/Channel", ["dealer","channel"]],
+    ["Market share", ["marketshare","share"]]
+  ]) {
+    const [label, tokens] = item;
+    if (!findColumnByTokens(columns, tokens)) missing.push(label);
+  }
+  return {
+    rowCount: rows.length,
+    columnCount: columns.length,
+    scoped,
+    scopeCounts,
+    numericColumns,
+    dimensionColumns,
+    driverColumns,
+    missingForDeeperWhy: missing
+  };
+}
+
+function detectDimensionColumns(rows: any[], columns: string[]) {
+  if (columns.includes("Dimension") && columns.includes("Member")) {
+    const scopedDims = unique(rows.map(r => String(r.Dimension ?? "").trim()).filter(Boolean));
+    if (scopedDims.length) return scopedDims;
+  }
+  return columns.filter(c => {
+    if (["Scope","Dimension","Member"].includes(c)) return false;
+    if (rows.some(r => typeof r[c] !== "string")) return false;
+    const uniqueCount = unique(rows.map(r => String(r[c] ?? "").trim()).filter(Boolean)).length;
+    return uniqueCount >= 2;
+  });
+}
+
+function buildContributionInsights(rows: any[], columns: string[], metric: string, dataProfile: any) {
+  const total = rows.reduce((s, r) => s + numericValue(r[metric]), 0);
+  const insights = [];
+
+  if (columns.includes("Dimension") && columns.includes("Member")) {
+    for (const dim of unique(rows.filter(r => String(r.Scope ?? "") !== "Cross").map(r => String(r.Dimension ?? "")).filter(Boolean))) {
+      const dimRows = rows.filter(r => String(r.Scope ?? "") !== "Cross" && String(r.Dimension ?? "") === dim);
+      const grouped = groupMetric(dimRows, "Member", metric).filter(i => i.label && i.value !== 0).sort((a, b) => b.value - a.value);
+      const item = contributionInsightFromGrouped(dim, grouped, total, metric);
+      if (item) insights.push(item);
+    }
+    return insights.slice(0, 8);
+  }
+
+  for (const dim of dataProfile.dimensionColumns) {
+    const grouped = groupMetric(rows, dim, metric).filter(i => i.label && i.value !== 0).sort((a, b) => b.value - a.value);
+    const item = contributionInsightFromGrouped(dim, grouped, total, metric);
+    if (item) insights.push(item);
+  }
+  return insights.slice(0, 8);
+}
+
+function contributionInsightFromGrouped(dimension: string, grouped: any[], total: number, metric: string) {
+  if (grouped.length < 2) return undefined;
+  const top = grouped[0];
+  const bottom = grouped[grouped.length - 1];
+  const top3 = grouped.slice(0, 3);
+  const top3Value = top3.reduce((s, item) => s + item.value, 0);
+  const topShare = total ? top.value / total : 0;
+  const top3Share = total ? top3Value / total : 0;
+  return {
+    dimension,
+    metric,
+    topLabel: top.label,
+    topValue: top.value,
+    topShare,
+    bottomLabel: bottom.label,
+    bottomValue: bottom.value,
+    itemCount: grouped.length,
+    top3: top3.map(item => ({ label: item.label, value: item.value, share: total ? item.value / total : 0 })),
+    concentration: top3Share,
+    read: top3Share >= 0.6 ? "Concentration risk" : topShare >= 0.2 ? "Scale contributor" : "Distributed contribution"
+  };
+}
+
+function buildCrossDimensionPockets(rows: any[], columns: string[], metric: string, dataProfile: any) {
+  if (columns.includes("Dimension") && columns.includes("Member")) {
+    return rows
+      .filter(r => String(r.Scope ?? "") === "Cross")
+      .map(r => buildPocketFromRow(String(r.Dimension ?? "Cross"), String(r.Member ?? ""), r, metric, rows))
+      .filter(Boolean)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 12);
+  }
+
+  const dims = dataProfile.dimensionColumns.filter(dim => rows.some(r => String(r[dim] ?? "").trim()));
+  const pairs = [];
+  for (let i = 0; i < dims.length; i += 1) {
+    for (let j = i + 1; j < dims.length; j += 1) {
+      pairs.push([dims[i], dims[j]]);
+    }
+  }
+  return pairs.slice(0, 4).flatMap(([a, b]) => {
+    const groups = new Map();
+    for (const r of rows) {
+      const av = String(r[a] ?? "").trim();
+      const bv = String(r[b] ?? "").trim();
+      if (!av || !bv) continue;
+      const label = `${av} / ${bv}`;
+      groups.set(label, {
+        dimension: `${a} x ${b}`,
+        label,
+        value: (groups.get(label)?.value ?? 0) + numericValue(r[metric])
+      });
+    }
+    const total = rows.reduce((s, r) => s + numericValue(r[metric]), 0);
+    return [...groups.values()].map(item => ({
+      ...item,
+      metric,
+      share: total ? item.value / total : 0,
+      cue: item.value / Math.max(total, 1) >= 0.1 ? "Scale or protect" : "Drill if margin/growth is attractive",
+      evidence: [`${formatMetricValue(metric, item.value)}`, `${formatPercent(total ? item.value / total : 0)} share`]
+    })).sort((x, y) => y.value - x.value).slice(0, 4);
+  }).sort((x, y) => y.value - x.value).slice(0, 12);
+}
+
+function buildPocketFromRow(dimension: string, label: string, row: any, metric: string, rows: any[]) {
+  if (!label) return undefined;
+  const total = rows.filter(r => String(r.Scope ?? "") !== "Monthly").reduce((s, r) => s + numericValue(r[metric]), 0);
+  const value = numericValue(row[metric]);
+  const marginCol = findColumnByTokens(Object.keys(row), ["margin"]);
+  const unitsCol = findColumnByTokens(Object.keys(row), ["unit","quantity","sold"]);
+  const discountCol = findColumnByTokens(Object.keys(row), ["discount"]);
+  const margin = marginCol ? numericValue(row[marginCol]) : undefined;
+  const units = unitsCol ? numericValue(row[unitsCol]) : undefined;
+  const discount = discountCol ? numericValue(row[discountCol]) : undefined;
+  return {
+    dimension,
+    label,
+    metric,
+    value,
+    share: total ? value / total : 0,
+    margin,
+    units,
+    discount,
+    cue: crossActionCue(row, metric),
+    evidence: [
+      formatMetricValue(metric, value),
+      total ? `${formatPercent(value / total)} share` : undefined,
+      margin !== undefined ? `margin ${formatMetricValue(marginCol, margin)}` : undefined,
+      units !== undefined ? `${formatNumber(units)} units` : undefined
+    ].filter(Boolean)
+  };
+}
+
+function buildRiskAndOpportunityWatch(rows: any[], columns: string[], metric: string, dataProfile: any) {
+  const riskRows = columns.includes("Dimension") && columns.includes("Member")
+    ? rows.filter(r => String(r.Scope ?? "") !== "Monthly")
+    : rows;
+  if (!riskRows.length) return [];
+
+  const invCol = findColumnByTokens(columns, ["inventory","stock"]);
+  const discountCol = findColumnByTokens(columns, ["discount","rebate"]);
+  const marginCol = findColumnByTokens(columns, ["margin","profit"]);
+  const marketingCol = findColumnByTokens(columns, ["marketing","campaign","promotion"]);
+  const shareCol = findColumnByTokens(columns, ["marketshare","share"]);
+  const avgValue = average(riskRows.map(r => numericValue(r[metric])));
+
+  return riskRows.map(r => {
+    const label = columns.includes("Dimension") && columns.includes("Member")
+      ? [r.Dimension, r.Member].filter(Boolean).join(": ")
+      : labelForRow(r, dataProfile.dimensionColumns);
+    const value = numericValue(r[metric]);
+    const flags = [];
+    let score = 0;
+    if (value >= avgValue * 1.5) {
+      flags.push("high contribution");
+      score += 1;
+    }
+    if (marginCol && numericValue(r[marginCol]) > 0 && numericValue(r[marginCol]) < 0.16) {
+      flags.push("margin below guardrail");
+      score += 3;
+    }
+    if (discountCol && value && numericValue(r[discountCol]) / Math.abs(value) > 0.04) {
+      flags.push("discount leakage");
+      score += 2;
+    }
+    if (invCol && numericValue(r[invCol]) > 42) {
+      flags.push("inventory pressure");
+      score += 2;
+    }
+    if (marketingCol && value && numericValue(r[marketingCol]) / Math.abs(value) > 0.025) {
+      flags.push("marketing intensity high");
+      score += 1;
+    }
+    if (shareCol && numericValue(r[shareCol]) > 0 && numericValue(r[shareCol]) < 10) {
+      flags.push("weak share");
+      score += 1;
+    }
+    if (!flags.length && value >= avgValue) {
+      flags.push("scale candidate");
+      score += 0.5;
+    }
+    return {
+      label,
+      value,
+      metric,
+      score,
+      severity: score >= 4 ? "high" : score >= 2 ? "medium" : "watch",
+      flags,
+      read: flags.length ? flags.join("; ") : "monitor for next drill-down"
+    };
+  }).filter(item => item.label).sort((a, b) => b.score - a.score || b.value - a.value).slice(0, 10);
+}
+
+function labelForRow(row: any, dimensions: string[]) {
+  const parts = dimensions.slice(0, 2).map(dim => String(row[dim] ?? "").trim()).filter(Boolean);
+  return parts.join(" / ") || "Returned row";
+}
+
+function buildExecutiveInsightCards(context: any) {
+  const { intent, analysis, rows, metric, dimension, dataProfile, contributions, crossPockets, risks, vi } = context;
+  const total = metric ? rows.reduce((s, r) => s + numericValue(r[metric]), 0) : 0;
+  const cards = [];
+
+  if (analysis) {
+    cards.push({
+      type: "what",
+      confidence: "high",
+      what: vi ? `WHAT: ${analysis.highest.label} cao nhất, ${analysis.lowest.label} thấp nhất` : `WHAT: ${analysis.highest.label} highest, ${analysis.lowest.label} lowest`,
+      why: vi ? `WHY: chênh lệch ${formatMetricValue(metric, analysis.spread)}; ${analysis.highest.reasons[0] ?? ""}` : `WHY: spread ${formatMetricValue(metric, analysis.spread)}; ${analysis.highest.reasons[0] ?? ""}`,
+      soWhat: vi ? "SO WHAT: đây là biến động cần phân rã theo volume, ASP/mix và các slice tỉnh/model/kênh." : "SO WHAT: this variance should be decomposed by volume, ASP/mix, and province/model/channel slices.",
+      action: vi ? "NOW WHAT: drill vào các pocket đóng góp lớn trước khi quyết định tăng ngân sách hoặc giá." : "NOW WHAT: drill into top pockets before changing budget or price.",
+      evidence: [analysis.dimension, analysis.metric, analysis.highest.label, analysis.lowest.label],
+      missingForDeeperWhy: dataProfile.missingForDeeperWhy
+    });
+  }
+
+  const leadContribution = contributions[0];
+  if (leadContribution) {
+    cards.push({
+      type: "contribution",
+      confidence: "high",
+      what: vi ? `WHAT: ${leadContribution.dimension} dẫn dắt bởi ${leadContribution.topLabel}` : `WHAT: ${leadContribution.dimension} led by ${leadContribution.topLabel}`,
+      why: vi
+        ? `WHY: ${leadContribution.topLabel} đóng góp ${formatMetricValue(metric, leadContribution.topValue)} (${formatPercent(leadContribution.topShare)} tổng).`
+        : `WHY: ${leadContribution.topLabel} contributes ${formatMetricValue(metric, leadContribution.topValue)} (${formatPercent(leadContribution.topShare)} of total).`,
+      soWhat: vi
+        ? `${leadContribution.concentration >= 0.6 ? "SO WHAT: rủi ro tập trung cao, cần bảo vệ nguồn tăng trưởng này." : "SO WHAT: có dư địa nhân rộng playbook sang nhóm kế tiếp."}`
+        : `${leadContribution.concentration >= 0.6 ? "SO WHAT: high concentration risk, protect this growth pool." : "SO WHAT: room to replicate playbook into the next cohort."}`,
+      action: vi ? `NOW WHAT: so sánh margin, tồn kho và discount của top ${leadContribution.dimension}.` : `NOW WHAT: compare margin, inventory, and discount for top ${leadContribution.dimension}.`,
+      evidence: leadContribution.top3.map(i => `${i.label}: ${formatMetricValue(metric, i.value)}`),
+      missingForDeeperWhy: dataProfile.missingForDeeperWhy
+    });
+  }
+
+  const leadPocket = crossPockets[0];
+  if (leadPocket) {
+    cards.push({
+      type: "cross-dimension",
+      confidence: leadPocket.evidence.length >= 3 ? "medium" : "directional",
+      what: vi ? `WHAT: pocket mạnh nhất là ${leadPocket.label}` : `WHAT: strongest pocket is ${leadPocket.label}`,
+      why: vi ? `WHY: ${leadPocket.evidence.join(" · ")}.` : `WHY: ${leadPocket.evidence.join(" · ")}.`,
+      soWhat: vi ? "SO WHAT: insight quyết định thường nằm ở giao điểm dimension, không nằm ở ranking đơn lẻ." : "SO WHAT: decision insight usually lives at dimension intersections, not single rankings.",
+      action: vi ? `NOW WHAT: ${leadPocket.cue}.` : `NOW WHAT: ${leadPocket.cue}.`,
+      evidence: leadPocket.evidence,
+      missingForDeeperWhy: dataProfile.missingForDeeperWhy
+    });
+  }
+
+  const topRisk = risks[0];
+  if (topRisk) {
+    cards.push({
+      type: "risk-opportunity",
+      confidence: topRisk.score >= 2 ? "medium" : "directional",
+      what: vi ? `WHAT: watchlist ưu tiên ${topRisk.label}` : `WHAT: priority watchlist ${topRisk.label}`,
+      why: vi ? `WHY: ${topRisk.read}; ${formatMetricValue(metric, topRisk.value)}.` : `WHY: ${topRisk.read}; ${formatMetricValue(metric, topRisk.value)}.`,
+      soWhat: vi ? "SO WHAT: tăng trưởng không đủ tốt nếu đi kèm margin leakage, tồn kho hoặc discount cao." : "SO WHAT: growth is not enough if paired with margin leakage, inventory pressure, or heavy discounting.",
+      action: vi ? "NOW WHAT: drill xuống dealer/campaign/inventory trước khi scale." : "NOW WHAT: drill into dealer/campaign/inventory before scaling.",
+      evidence: [topRisk.label, topRisk.read, formatMetricValue(metric, topRisk.value)],
+      missingForDeeperWhy: dataProfile.missingForDeeperWhy
+    });
+  }
+
+  if (!cards.length && metric) {
+    cards.push({
+      type: "baseline",
+      confidence: "directional",
+      what: vi ? `WHAT: ${metric} tổng ${formatMetricValue(metric, total)}` : `WHAT: ${metric} totals ${formatMetricValue(metric, total)}`,
+      why: vi ? `WHY: query trả ${rows.length} dòng và ${dataProfile.dimensionColumns.length} dimension có thể phân tích.` : `WHY: query returned ${rows.length} rows and ${dataProfile.dimensionColumns.length} analyzable dimensions.`,
+      soWhat: vi ? "SO WHAT: đủ để đọc overview, chưa đủ để kết luận root cause sâu." : "SO WHAT: enough for overview, not enough for deep root cause.",
+      action: vi ? "NOW WHAT: thêm plan, margin, inventory, campaign, dealer để ra quyết định tốt hơn." : "NOW WHAT: add plan, margin, inventory, campaign, dealer for stronger decisions.",
+      evidence: [metric, `${rows.length} rows`],
+      missingForDeeperWhy: dataProfile.missingForDeeperWhy
+    });
+  }
+
+  return cards.slice(0, 6);
+}
+
+function buildNextBestQuestions(context: any) {
+  const { intent, metric, dimension, dataProfile, contributions, crossPockets, risks, vi } = context;
+  const leadDim = contributions[0]?.dimension ?? dimension ?? "dimension";
+  const leadPocket = crossPockets[0]?.label;
+  const risk = risks[0]?.label;
+  const questions = [];
+
+  questions.push(vi
+    ? `${leadDim} nào đóng góp nhiều nhất vào tăng trưởng và margin có bền vững không?`
+    : `Which ${leadDim} contributes most to growth, and is its margin sustainable?`);
+  if (leadPocket) {
+    questions.push(vi
+      ? `Vì sao pocket ${leadPocket} nổi bật, có thể nhân rộng sang tỉnh/model nào?`
+      : `Why does pocket ${leadPocket} stand out, and where can it be replicated?`);
+  }
+  if (risk) {
+    questions.push(vi
+      ? `${risk} là rủi ro thật hay chỉ là hiệu ứng mix dữ liệu?`
+      : `Is ${risk} a true risk or a data-mix effect?`);
+  }
+  if (!dataProfile.missingForDeeperWhy.some(item => /Plan|Target/i.test(item))) {
+    questions.push(vi ? `${metric} đang lệch plan ở đâu và do driver nào?` : `Where is ${metric} off plan, and which driver explains it?`);
+  } else {
+    questions.push(vi ? `Nếu thêm plan/target, slice nào đang thiếu kế hoạch nhiều nhất?` : `With plan/target added, which slice misses plan the most?`);
+  }
+  return unique(questions).slice(0, 5);
+}
+
+function renderBusinessInsightSection(business: any): string {
+  if (!business) return "";
+  const cards = business.insightCards ?? [];
+  const contributions = business.contributions ?? [];
+  const pockets = business.crossPockets ?? [];
+  const risks = business.risks ?? [];
+  const nextQuestions = business.nextQuestions ?? [];
+  const profile = business.dataProfile ?? {};
+  if (!cards.length && !contributions.length && !pockets.length && !risks.length) return "";
+
+  return `<section class="analysis-stack">
+    <article class="panel">
+      <h2>Executive insight layers</h2>
+      <p class="analysis-note">Decision-first readout generated from returned measures and dimensions. Raw rows stay in MCP structuredContent for auditability, not as the main report view.</p>
+      <div class="heat-grid">
+        ${cards.map(card => `<div class="heat-cell ${card.type === "risk-opportunity" ? "risk" : card.type === "cross-dimension" ? "warn" : "scale"}">
+          <b>${escapeHtml(card.what)}</b>
+          <span>${escapeHtml(card.why)}</span>
+          <span>${escapeHtml(card.soWhat)}</span>
+          <span>${escapeHtml(card.action)}</span>
+          <span>Confidence: ${escapeHtml(card.confidence)} · Evidence: ${escapeHtml((card.evidence ?? []).slice(0, 3).join(" | "))}</span>
+        </div>`).join("")}
+      </div>
+    </article>
+
+    <section class="analysis-grid">
+      ${renderContributionLayer(contributions)}
+      ${renderPocketLayer(pockets)}
+      ${renderRiskLayer(risks)}
+      ${renderDataProfileLayer(profile, nextQuestions)}
+    </section>
+  </section>`;
+}
+
+function renderContributionLayer(contributions: any[]): string {
+  if (!contributions.length) return "";
+  return `<article class="panel">
+    <h2>Contribution analysis</h2>
+    <p class="analysis-note">Shows which dimension actually moves the business outcome.</p>
+    <div class="visual-grid">
+      ${contributions.slice(0, 6).map(item => {
+        const width = Math.max(4, Math.round((item.topShare || 0) * 100));
+        return `<div class="visual-row">
+          <div class="visual-name">${escapeHtml(item.dimension)}<span class="visual-sub">${escapeHtml(item.read)} · ${escapeHtml(item.itemCount)} members</span></div>
+          <div class="track"><div class="fill" style="width:${width}%"></div></div>
+          <div class="visual-metric">${escapeHtml(formatPercent(item.topShare))}<span class="visual-sub">${escapeHtml(item.topLabel)} · ${escapeHtml(formatMetricValue(item.metric, item.topValue))}</span></div>
+        </div>`;
+      }).join("")}
+    </div>
+  </article>`;
+}
+
+function renderPocketLayer(pockets: any[]): string {
+  if (!pockets.length) return "";
+  return `<article class="panel">
+    <h2>Cross-dimension pockets</h2>
+    <p class="analysis-note">Business insight often lives in combinations such as Province x Model or Region x Dealer.</p>
+    <div class="heat-grid">
+      ${pockets.slice(0, 8).map(item => {
+        const tone = item.cue?.includes("Fix") ? "risk" : item.cue?.includes("Audit") ? "warn" : "scale";
+        return `<div class="heat-cell ${tone}">
+          <b>${escapeHtml(item.label)}</b>
+          <span>${escapeHtml(item.dimension)} · ${escapeHtml(formatMetricValue(item.metric ?? "metric", item.value))} · ${escapeHtml(formatPercent(item.share || 0))}</span>
+          <span>${escapeHtml(item.cue ?? "")}</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </article>`;
+}
+
+function renderRiskLayer(risks: any[]): string {
+  if (!risks.length) return "";
+  return `<article class="panel">
+    <h2>Risk and opportunity watch</h2>
+    <p class="analysis-note">Flags scale candidates and slices that need operational drill-down.</p>
+    <div class="alert-grid">
+      ${risks.slice(0, 8).map(item => `<div class="alert-card ${item.severity === "high" ? "high" : item.severity === "watch" ? "ok" : ""}">
+        <b>${escapeHtml(item.label)}</b>
+        <p>${escapeHtml(item.read)}</p>
+        <p>${escapeHtml(formatMetricValue(item.metric ?? "metric", item.value))}</p>
+      </div>`).join("")}
+    </div>
+  </article>`;
+}
+
+function renderDataProfileLayer(profile: any, nextQuestions: string[]): string {
+  return `<article class="panel">
+    <h2>Evidence and next questions</h2>
+    <div class="driver-tree">
+      <div class="tree-row"><span>Rows / columns</span><strong>${escapeHtml(formatNumber(profile.rowCount ?? 0))} / ${escapeHtml(formatNumber(profile.columnCount ?? 0))}</strong></div>
+      <div class="tree-row"><span>Detected dimensions</span><strong>${escapeHtml((profile.dimensionColumns ?? []).slice(0, 5).join(", ") || "n/a")}</strong></div>
+      <div class="tree-row"><span>Detected measures</span><strong>${escapeHtml((profile.numericColumns ?? []).slice(0, 5).join(", ") || "n/a")}</strong></div>
+      <div class="tree-row"><span>Missing for deeper why</span><strong>${escapeHtml((profile.missingForDeeperWhy ?? []).slice(0, 4).join(", ") || "none")}</strong></div>
+    </div>
+    ${nextQuestions.length ? `<div style="margin-top:14px" class="driver-tree">${nextQuestions.map(q => `<div class="tree-row"><span>${escapeHtml(q)}</span><strong>Next</strong></div>`).join("")}</div>` : ""}
+  </article>`;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -462,6 +933,8 @@ function renderDashboardHtml(input) {
     ${input.insights.length ? `<section class="insights">${input.insights.map(i => `<article class="insight"><strong>${escapeHtml(i.title)}</strong><p>${escapeHtml(i.detail)}</p></article>`).join("")}</section>` : ""}
 
     ${modeSection}
+
+    ${renderBusinessInsightSection(input.business)}
 
     <section class="content">
       <article class="panel">
