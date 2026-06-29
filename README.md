@@ -47,6 +47,44 @@ It writes a local `.env` file with mode `0600`. The MCP server loads this file a
 
 ## Claude Desktop Setup
 
+### One-line setup
+
+The fastest path is the bundled Claude Desktop setup script. It detects macOS vs Windows shells, installs dependencies, builds `dist/server.js`, selects the native Microsoft Power BI Modeling MCP binary for the current device, writes `.env`, backs up Claude Desktop config, and merges the MCP server into `mcpServers`.
+
+From an existing clone:
+
+```bash
+bash scripts/setup-claude-desktop.sh --workspaces test-mcp --model sale_vehicle-vf
+```
+
+From a fresh machine:
+
+```bash
+git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git
+cd mcp-powerBI-to-report
+bash scripts/setup-claude-desktop.sh --workspaces test-mcp --model sale_vehicle-vf
+```
+
+Or one command that clones to `~/mcp-powerBI-to-report` when needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces test-mcp --model sale_vehicle-vf
+```
+
+Windows should run the same command from Git Bash. The script writes Windows-native paths into Claude Desktop config and points `POWERBI_MODELING_MCP_COMMAND` directly to:
+
+```text
+node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe
+```
+
+Optional npm alias:
+
+```bash
+npm run setup:claude-desktop -- --workspaces test-mcp --model sale_vehicle-vf
+```
+
+After the script finishes, restart Claude Desktop completely.
+
 ### 1. Locate the config file
 
 | OS | Path |

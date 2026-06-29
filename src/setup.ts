@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 import { chmod, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { defaultEnvPath, loadEnvFile } from "./env.js";
-
-const LOCAL_MODELING_MCP =
-  "/Users/ducna/.codex/mcp/powerbi-modeling-mcp/node_modules/@microsoft/powerbi-modeling-mcp-darwin-arm64/dist/powerbi-modeling-mcp";
+import { defaultEnvPath, loadEnvFile, projectRoot } from "./env.js";
 
 async function main() {
   loadEnvFile();
@@ -17,14 +15,12 @@ async function main() {
     console.log(`Env file: ${defaultEnvPath()}`);
     console.log("");
 
-    const modelingCommandDefault =
-      process.env.POWERBI_MODELING_MCP_COMMAND ||
-      (existsSync(LOCAL_MODELING_MCP) ? LOCAL_MODELING_MCP : "npx");
+    const modelingCommandDefault = process.env.POWERBI_MODELING_MCP_COMMAND || defaultModelingMcpCommand();
     const modelingCommand = await prompt(rl, "Microsoft Modeling MCP command", modelingCommandDefault);
     const modelingArgs = await prompt(
       rl,
       "Microsoft Modeling MCP args",
-      process.env.POWERBI_MODELING_MCP_ARGS || (modelingCommand === "npx" ? "-y @microsoft/powerbi-modeling-mcp@latest --start" : "--start")
+      process.env.POWERBI_MODELING_MCP_ARGS || defaultModelingMcpArgs(modelingCommand)
     );
     const knownWorkspaces = await prompt(
       rl,
@@ -71,6 +67,35 @@ function quote(value: string): string {
 
 function firstCsvValue(value: string): string {
   return value.split(",").map(item => item.trim()).find(Boolean) || "";
+}
+
+function defaultModelingMcpCommand(): string {
+  const nativeBinary = nativeModelingMcpBinaryPath();
+  if (nativeBinary && existsSync(nativeBinary)) return nativeBinary;
+  return "npx";
+}
+
+function defaultModelingMcpArgs(command: string): string {
+  if (command === "npx") {
+    return "-y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive";
+  }
+  return "--start --authmode=interactive";
+}
+
+function nativeModelingMcpBinaryPath(): string | undefined {
+  const platform = process.platform;
+  const arch = process.arch;
+
+  if (platform === "darwin" && arch === "arm64") {
+    return resolve(projectRoot(), "node_modules/@microsoft/powerbi-modeling-mcp-darwin-arm64/dist/powerbi-modeling-mcp");
+  }
+  if (platform === "darwin" && arch === "x64") {
+    return resolve(projectRoot(), "node_modules/@microsoft/powerbi-modeling-mcp-darwin-x64/dist/powerbi-modeling-mcp");
+  }
+  if (platform === "win32") {
+    return resolve(projectRoot(), "node_modules/@microsoft/powerbi-modeling-mcp-win32-x64/dist/powerbi-modeling-mcp.exe");
+  }
+  return undefined;
 }
 
 main().catch(error => {
