@@ -342,7 +342,7 @@ function detectDimensionColumns(rows: any[], columns: string[]) {
 }
 
 function buildContributionInsights(rows: any[], columns: string[], metric: string, dataProfile: any) {
-  const total = rows.reduce((s, r) => s + numericValue(r[metric]), 0);
+  const total = businessMetricTotal(rows, metric);
   const insights = [];
 
   if (columns.includes("Dimension") && columns.includes("Member")) {
@@ -416,7 +416,7 @@ function buildCrossDimensionPockets(rows: any[], columns: string[], metric: stri
         value: (groups.get(label)?.value ?? 0) + numericValue(r[metric])
       });
     }
-    const total = rows.reduce((s, r) => s + numericValue(r[metric]), 0);
+    const total = businessMetricTotal(rows, metric);
     return [...groups.values()].map(item => ({
       ...item,
       metric,
@@ -429,7 +429,7 @@ function buildCrossDimensionPockets(rows: any[], columns: string[], metric: stri
 
 function buildPocketFromRow(dimension: string, label: string, row: any, metric: string, rows: any[]) {
   if (!label) return undefined;
-  const total = rows.filter(r => String(r.Scope ?? "") !== "Monthly").reduce((s, r) => s + numericValue(r[metric]), 0);
+  const total = businessMetricTotal(rows, metric);
   const value = numericValue(row[metric]);
   const marginCol = findColumnByTokens(Object.keys(row), ["margin"]);
   const unitsCol = findColumnByTokens(Object.keys(row), ["unit","quantity","sold"]);
@@ -539,7 +539,7 @@ function buildExecutiveInsightCards(context: any) {
     });
   }
 
-  const leadContribution = contributions[0];
+  const leadContribution = contributions.find(item => !isTimeDimensionName(item.dimension)) ?? contributions[0];
   if (leadContribution) {
     cards.push({
       type: "contribution",
@@ -603,7 +603,7 @@ function buildExecutiveInsightCards(context: any) {
 
 function buildNextBestQuestions(context: any) {
   const { intent, metric, dimension, dataProfile, contributions, crossPockets, risks, vi } = context;
-  const leadDim = contributions[0]?.dimension ?? dimension ?? "dimension";
+  const leadDim = (contributions.find(item => !isTimeDimensionName(item.dimension)) ?? contributions[0])?.dimension ?? dimension ?? "dimension";
   const leadPocket = crossPockets[0]?.label;
   const risk = risks[0]?.label;
   const questions = [];
@@ -627,6 +627,11 @@ function buildNextBestQuestions(context: any) {
     questions.push(vi ? `Nếu thêm plan/target, slice nào đang thiếu kế hoạch nhiều nhất?` : `With plan/target added, which slice misses plan the most?`);
   }
   return unique(questions).slice(0, 5);
+}
+
+function isTimeDimensionName(value: string): boolean {
+  const n = normalizeForMatch(value);
+  return ["month","yearmonth","period","date","thang"].some(token => n.includes(token));
 }
 
 function renderBusinessInsightSection(business: any): string {
@@ -727,17 +732,29 @@ function renderDataProfileLayer(profile: any, nextQuestions: string[]): string {
   </article>`;
 }
 
+function renderDecisionCards(rows: any[]): string {
+  if (!rows?.length) return "<p>No decision rows available.</p>";
+  return `<div class="decision-cards">${rows.map(row => `<div class="decision-card">
+    <b>${escapeHtml(row.question)}</b>
+    <span>Evidence</span><p>${escapeHtml(row.evidence)}</p>
+    <span>Management read</span><p>${escapeHtml(row.decision)}</p>
+    <span>Still missing</span><p>${escapeHtml(row.missing)}</p>
+  </div>`).join("")}</div>`;
+}
+
 // ═══════════════════════════════════════════════════════
 // KPI cards (mode-aware)
 // ═══════════════════════════════════════════════════════
 
 function buildKpis(rows: any[], columns: string[], intent: ReportIntent, analysis: any) {
   if (intent?.mode === "month-extremes" && analysis) {
+    const monthlyRows = selectMonthlyRows(rows);
+    const monthCount = unique(monthlyRows.map(r => String(r[analysis.dimension] ?? "").trim()).filter(Boolean)).length || monthlyRows.length;
     return [
       { label: `Highest ${analysis.metric}`, value: `${analysis.highest.label}: ${formatNumber(analysis.highest.value)}`, tone: "green" },
       { label: `Lowest ${analysis.metric}`,  value: `${analysis.lowest.label}: ${formatNumber(analysis.lowest.value)}`,  tone: "red"   },
       { label: "Spread",  value: formatNumber(analysis.spread), tone: "amber" },
-      { label: "Months",  value: formatNumber(rows.length),      tone: "blue"  }
+      { label: "Months",  value: formatNumber(monthCount),       tone: "blue"  }
     ];
   }
 
@@ -776,6 +793,7 @@ function renderDashboardHtml(input) {
   const kpis   = buildKpis(input.rows, input.columns, intent, input.analysis);
 
   let modeSection = "";
+  let analysisSection = "";
   let chartHtml   = "";
   const metric = intent?.primaryMetric;
   const dim    = intent?.primaryDimension;
@@ -784,7 +802,7 @@ function renderDashboardHtml(input) {
     case "month-extremes":
       if (input.analysis) {
         modeSection = renderMonthExtremesSection(input);
-        modeSection += renderAnalysisTables(input.rows, input.analysis);
+        analysisSection = renderAnalysisTables(input.rows, input.analysis);
       }
       chartHtml = renderMonthlyBars(input.rows, input.analysis?.dimension, input.analysis?.metric);
       break;
@@ -890,6 +908,11 @@ function renderDashboardHtml(input) {
     .alert-card.high { border-top-color: var(--red); } .alert-card.ok { border-top-color: var(--green); }
     .alert-card b { display: block; margin-bottom: 5px; } .alert-card p { font-size: 12px; line-height: 1.4; }
     .mode-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: #eef3f8; color: #344054; margin-bottom: 14px; }
+    .decision-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .decision-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfd; break-inside: avoid; }
+    .decision-card b { display: block; margin-bottom: 7px; font-size: 14px; }
+    .decision-card span { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 760; margin-top: 9px; margin-bottom: 3px; }
+    .decision-card p { font-size: 12px; line-height: 1.4; margin: 0; }
     .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
     table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -904,11 +927,23 @@ function renderDashboardHtml(input) {
       .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 560px) {
-      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .waterfall { grid-template-columns: 1fr; }
+      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .decision-cards, .waterfall { grid-template-columns: 1fr; }
       .bar-row { grid-template-columns: 1fr; gap: 6px; }
       .visual-row { grid-template-columns: 1fr; }
       .visual-metric { text-align: left; }
       h1 { font-size: 24px; }
+    }
+    @media print {
+      @page { size: A4; margin: 12mm; }
+      body { background: #fff; }
+      main { max-width: none; padding: 0; }
+      header, .panel, .card, .insight, .heat-cell, .alert-card, .mini-card, .decision-card { break-inside: avoid; box-shadow: none; }
+      .grid, .readout, .mini-cards, .heat-grid, .alert-grid, .decision-cards { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .exec-grid, .analysis-grid, .content { grid-template-columns: 1fr; }
+      .query, .print-hidden { display: none !important; }
+      .panel { margin-bottom: 12px; }
+      h1 { font-size: 26px; }
+      h2 { font-size: 16px; }
     }
   </style>
 </head>
@@ -930,11 +965,11 @@ function renderDashboardHtml(input) {
       ${kpis.map(k => `<article class="card tone-${k.tone}"><div class="label">${escapeHtml(k.label)}</div><div class="value">${escapeHtml(k.value)}</div></article>`).join("\n      ")}
     </section>
 
-    ${input.insights.length ? `<section class="insights">${input.insights.map(i => `<article class="insight"><strong>${escapeHtml(i.title)}</strong><p>${escapeHtml(i.detail)}</p></article>`).join("")}</section>` : ""}
+    ${renderBusinessInsightSection(input.business)}
 
     ${modeSection}
 
-    ${renderBusinessInsightSection(input.business)}
+    ${analysisSection}
 
     <section class="content">
       <article class="panel">
@@ -943,7 +978,7 @@ function renderDashboardHtml(input) {
       </article>
     </section>
 
-    <section class="panel" style="margin-top:18px">
+    <section class="panel print-hidden" style="margin-top:18px">
       <h2>Question</h2>
       <p>${escapeHtml(input.question ?? "")}</p>
       <pre class="query">${escapeHtml(input.query ?? "")}</pre>
@@ -1020,7 +1055,7 @@ function renderMonthExtremesSection(input) {
 
     <article class="panel">
       <h2>Executive decision board</h2>
-      <div class="table-wrap"><table class="decision-table"><thead><tr><th>CEO question</th><th>Evidence from query</th><th>Management read</th><th>Still missing</th></tr></thead><tbody>${executive.decisionRows.map(r => `<tr><td>${escapeHtml(r.question)}</td><td>${escapeHtml(r.evidence)}</td><td>${escapeHtml(r.decision)}</td><td>${escapeHtml(r.missing)}</td></tr>`).join("")}</tbody></table></div>
+      ${renderDecisionCards(executive.decisionRows)}
     </article>
 
     <article class="panel">
@@ -1811,6 +1846,14 @@ function groupMetric(rows, dimension, metric) {
     groups.set(label, (groups.get(label) ?? 0) + numericValue(r[metric]));
   }
   return [...groups.entries()].map(([label, value]) => ({ label, value }));
+}
+
+function businessMetricTotal(rows, metric) {
+  const monthlyRows = selectMonthlyRows(rows);
+  if (monthlyRows.length) {
+    return monthlyRows.reduce((s, r) => s + numericValue(r[metric]), 0);
+  }
+  return rows.reduce((s, r) => s + numericValue(r[metric]), 0);
 }
 
 function aggregateRows(rows, columns) {
