@@ -349,7 +349,16 @@ Prefer `execute_dax_report_query` and write DAX that returns:
 - a numeric revenue/sales/doanh thu column
 - explanatory driver columns when the model has them, such as order count, customer count, average ticket, product/category, region, branch, or channel
 
-The report generator automatically detects the month and revenue columns, aggregates revenue by month, and returns the highest and lowest months in `summary` and `insights`. The HTML report also adds an executive decision layer with `What happened`, `Why it happened`, `So what`, revenue bridge, driver tree, decision levers, run-rate read, and an evidence table.
+The report generator automatically detects the month and revenue columns, aggregates revenue by month, and returns the highest and lowest months in `summary` and `insights`. For explanation questions (`why`, `tại sao`, `vì sao`, highest/lowest), it also runs an evidence sufficiency gate before rendering:
+
+- scan semantic model columns with `INFO.COLUMNS()`
+- infer available dimensions such as `Region`, `Model`, `Province`, `Dealer`, `Campaign`
+- infer drivers such as units, ASP, margin, discount, marketing, inventory, market share
+- infer the focus period from the question or returned rows
+- run slice gap queries by available dimensions and cross-dimensions
+- render an `Evidence acquired before conclusion` section showing what was queried and what schema is genuinely missing
+
+The HTML report also adds an executive decision layer with `What happened`, `Why it happened`, `So what`, revenue bridge, driver tree, decision levers, run-rate read, and evidence tables. If the semantic model lacks fields such as `Dealer`, `Campaign`, `Lead`, or `Conversion`, the report marks those as missing only after schema scan.
 
 Example DAX query shape:
 

@@ -83,6 +83,7 @@ export async function buildDashboardResponse(request) {
     dataSources: request.dataSources ?? [],
     joinPlan: request.joinPlan,
     validationWarnings: request.validationWarnings ?? [],
+    evidenceGate: request.evidenceGate,
     datasets,
     datasetProfiles,
     rows: table.rows,
@@ -876,6 +877,73 @@ function renderDataSourceSection(input: any): string {
   </section>`;
 }
 
+function renderEvidenceGateSection(input: any): string {
+  const gate = input.evidenceGate;
+  if (!gate?.triggered) return "";
+  const results = gate.queryResults ?? [];
+  const successful = results.filter(result => !result.error);
+  const failed = results.filter(result => result.error);
+  return `<section class="analysis-stack">
+    <article class="panel">
+      <h2>Evidence acquired before conclusion</h2>
+      <p class="analysis-note">For why/root-cause questions, the report scans schema and runs available slice queries before rendering the final answer. Missing evidence below means the semantic model does not expose that field, or the query failed.</p>
+      <div class="driver-tree">
+        <div class="tree-row"><span>Gate reason</span><strong>${escapeHtml(gate.reason ?? "")}</strong></div>
+        <div class="tree-row"><span>Base table inferred</span><strong>${escapeHtml(gate.baseTable ?? "not inferred")}</strong></div>
+        <div class="tree-row"><span>Focus period</span><strong>${escapeHtml(gate.focusPeriod !== undefined ? `${gate.focusPeriod} (${gate.focusMode ?? "inferred"})` : "not inferred")}</strong></div>
+        <div class="tree-row"><span>Available dimensions queried</span><strong>${escapeHtml((gate.availableDimensions ?? []).join(", ") || "none")}</strong></div>
+        <div class="tree-row"><span>Missing dimensions</span><strong>${escapeHtml((gate.missingDimensions ?? []).slice(0, 6).join(", ") || "none")}</strong></div>
+        <div class="tree-row"><span>Missing drivers</span><strong>${escapeHtml((gate.missingDrivers ?? []).slice(0, 8).join(", ") || "none")}</strong></div>
+        <div class="tree-row"><span>Query pack result</span><strong>${escapeHtml(`${successful.length} succeeded / ${failed.length} failed`)}</strong></div>
+      </div>
+      ${gate.warnings?.length ? `<div style="margin-top:14px" class="driver-tree">${gate.warnings.map(warning => `<div class="tree-row"><span>${escapeHtml(warning)}</span><strong>Warning</strong></div>`).join("")}</div>` : ""}
+    </article>
+    <section class="analysis-grid">
+      ${results.slice(0, 6).map(result => renderEvidenceQueryBlock(result)).join("")}
+    </section>
+  </section>`;
+}
+
+function renderEvidenceQueryBlock(result: any): string {
+  if (result.error) {
+    return `<article class="panel">
+      <h2>${escapeHtml(result.label)}</h2>
+      <p class="analysis-note">${escapeHtml(result.error)}</p>
+    </article>`;
+  }
+  const rows = result.rows ?? [];
+  const columns = prioritizeEvidenceColumns(unique(rows.flatMap(row => Object.keys(row))), result.dimensions ?? []);
+  return `<article class="panel">
+    <h2>${escapeHtml(result.label)}</h2>
+    <p class="analysis-note">${escapeHtml(result.role)} · ${escapeHtml(formatNumber(result.rowCount ?? rows.length))} rows · dimensions: ${escapeHtml((result.dimensions ?? []).join(" x ") || "n/a")}</p>
+    ${renderEvidenceTable(rows, columns, 8)}
+  </article>`;
+}
+
+function prioritizeEvidenceColumns(columns: string[], dimensions: string[]): string[] {
+  const priority = [
+    ...dimensions,
+    "FocusRevenue",
+    "AvgRevenue",
+    "RevenueGap",
+    "FocusUnits",
+    "AvgUnits",
+    "UnitsGap",
+    "VolumeEffect",
+    "ASPEffect",
+    "MarketingGap",
+    "InventoryGap",
+    "Revenue",
+    "Units",
+    "WeightedASP"
+  ];
+  const selected = unique([
+    ...priority.flatMap(item => columns.filter(column => normalizeForMatch(column) === normalizeForMatch(item) || normalizeForMatch(column).endsWith(normalizeForMatch(item)))),
+    ...columns
+  ]);
+  return selected.slice(0, 9);
+}
+
 function renderDatasetEvidenceSection(input: any): string {
   const datasets = input.datasets ?? [];
   const profiles = input.datasetProfiles ?? [];
@@ -1284,6 +1352,8 @@ function renderDashboardHtml(input) {
     </section>
 
     ${renderDataSourceSection(input)}
+
+    ${renderEvidenceGateSection(input)}
 
     ${multiDatasetMode ? renderDatasetEvidenceSection(input) : ""}
 

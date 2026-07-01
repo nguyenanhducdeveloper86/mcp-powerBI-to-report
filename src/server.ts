@@ -4,6 +4,15 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { buildDashboardResponse } from "./dashboard.js";
 import type { ReportDataset } from "./datasetProfiler.js";
+import {
+  buildEvidenceGateResult,
+  buildEvidencePlan,
+  schemaColumnNames,
+  schemaScanQuery,
+  shouldRunEvidenceGate,
+  type EvidenceGateResult,
+  type EvidenceQueryResult
+} from "./evidenceGate.js";
 import { loadEnvFile } from "./env.js";
 import { ModelingMcpBridge } from "./modelingMcpBridge.js";
 
@@ -259,13 +268,24 @@ async function reportResult(options: {
     maxRows: options.maxRows,
     timeoutSeconds: options.timeoutSeconds
   });
+  const resultRows = extractRows(result);
+  const evidenceGate = await maybeRunEvidenceGate({
+    question: options.question,
+    query: options.query,
+    workspaceName: workspace,
+    semanticModelName: model,
+    returnedRows: resultRows,
+    returnedColumns: uniqueNonEmpty(resultRows.flatMap(row => Object.keys(row))),
+    timeoutSeconds: options.timeoutSeconds
+  });
   const dashboard = await buildDashboardResponse({
     question: options.question,
     title: options.title,
     workspaceName: workspace,
     semanticModelName: model,
     query: options.query,
-    result
+    result,
+    evidenceGate
   });
 
   const format = options.format || "both";
@@ -278,6 +298,7 @@ async function reportResult(options: {
     insights: dashboard.insights,
     insightCards: dashboard.insightCards,
     dataProfile: dashboard.dataProfile,
+    evidenceGate: dashboard.evidenceGate,
     nextQuestions: dashboard.nextQuestions,
     reportPath: dashboard.dashboardPath,
     reportUri: dashboard.dashboardUri,
@@ -311,9 +332,80 @@ async function reportResult(options: {
       dashboardPath: dashboard.dashboardPath,
       dashboardUri: dashboard.dashboardUri,
       rows: dashboard.rows,
+      evidenceGate: dashboard.evidenceGate,
       html: dashboard.html
     }
   };
+}
+
+async function maybeRunEvidenceGate(options: {
+  question: string;
+  query: string;
+  workspaceName: string;
+  semanticModelName: string;
+  returnedRows: Record<string, unknown>[];
+  returnedColumns: string[];
+  timeoutSeconds?: number;
+}): Promise<EvidenceGateResult | undefined> {
+  if (!shouldRunEvidenceGate(options.question)) return undefined;
+
+  const warnings: string[] = [];
+  let schemaColumns: string[] = [];
+  try {
+    const schemaResult = await modelingBridge.executeDaxQuery({
+      workspaceName: options.workspaceName,
+      semanticModelName: options.semanticModelName,
+      query: schemaScanQuery(),
+      maxRows: 2000,
+      timeoutSeconds: options.timeoutSeconds ?? 120
+    });
+    schemaColumns = schemaColumnNames(extractRows(schemaResult));
+  } catch (error) {
+    warnings.push(`Schema scan failed: ${errorMessage(error)}.`);
+  }
+
+  const plan = buildEvidencePlan({
+    question: options.question,
+    query: options.query,
+    schemaColumns,
+    returnedColumns: options.returnedColumns,
+    returnedRows: options.returnedRows
+  });
+  plan.warnings.push(...warnings);
+
+  const queryResults: EvidenceQueryResult[] = [];
+  for (const spec of plan.querySpecs) {
+    try {
+      const result = await modelingBridge.executeDaxQuery({
+        workspaceName: options.workspaceName,
+        semanticModelName: options.semanticModelName,
+        query: spec.query,
+        maxRows: spec.maxRows,
+        timeoutSeconds: options.timeoutSeconds ?? 120
+      });
+      const rows = extractRows(result);
+      queryResults.push({
+        id: spec.id,
+        label: spec.label,
+        role: spec.role,
+        dimensions: spec.dimensions,
+        rowCount: rows.length,
+        rows
+      });
+    } catch (error) {
+      queryResults.push({
+        id: spec.id,
+        label: spec.label,
+        role: spec.role,
+        dimensions: spec.dimensions,
+        rowCount: 0,
+        rows: [],
+        error: errorMessage(error)
+      });
+    }
+  }
+
+  return buildEvidenceGateResult(plan, queryResults);
 }
 
 async function multiSemanticReportResult(options: {
@@ -709,6 +801,10 @@ function uniqueNonEmpty(values: string[]): string[] {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeText(value: string): string {
