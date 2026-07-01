@@ -1,6 +1,7 @@
 param(
   [string]$Workspace = "GSM_MCP_POC_WORKSPACE",
   [string]$RepoDir = "$HOME\mcp-powerBI-to-report",
+  [string]$ModelingMcpVersion = "0.5.0-beta.10",
   [switch]$CorporateNpm,
   [switch]$Clean,
   [switch]$SkipPrereqInstall
@@ -71,7 +72,21 @@ if ($CorporateNpm) {
 }
 
 npm install --omit=dev --include=optional
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-claude-desktop.ps1 -Workspace $Workspace -SkipInstall
+
+$NativeModelingBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
+if (-not (Test-Path $NativeModelingBinary)) {
+  Write-Host "Microsoft Modeling MCP Windows binary is missing. Installing native package explicitly..."
+  npm install --omit=dev --include=optional --no-save "@microsoft/powerbi-modeling-mcp-win32-x64@$ModelingMcpVersion"
+}
+
+if (-not (Test-Path $NativeModelingBinary)) {
+  throw "Microsoft Modeling MCP Windows binary is still missing: $NativeModelingBinary. The corporate gateway may be blocking @microsoft/powerbi-modeling-mcp-win32-x64@$ModelingMcpVersion."
+}
+
+& powershell -ExecutionPolicy Bypass -File .\scripts\setup-claude-desktop.ps1 -Workspace $Workspace -SkipInstall
+if ($LASTEXITCODE -ne 0) {
+  throw "Claude Desktop MCP setup failed with exit code $LASTEXITCODE."
+}
 
 Write-Host ""
 Write-Host "Done. Restart Claude Desktop completely, then ask Claude:"
