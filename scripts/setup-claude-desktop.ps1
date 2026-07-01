@@ -54,7 +54,7 @@ if (-not $ModelingArgs) { $ModelingArgs = "--start --authmode=interactive" }
 Set-Location $RepoDir
 
 if (-not $SkipInstall -and -not $DryRun) {
-  npm install
+  npm install --include=optional
 }
 
 $NativeModelingBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
@@ -62,7 +62,7 @@ if (-not $ModelingCommand) {
   if (Test-Path $NativeModelingBinary) {
     $ModelingCommand = $NativeModelingBinary
   } else {
-    throw "Cannot find Microsoft Modeling MCP Windows binary at: $NativeModelingBinary. Run npm install, then re-run this script."
+    throw "Cannot find Microsoft Modeling MCP Windows binary at: $NativeModelingBinary. Run npm install --include=optional, then re-run this script."
   }
 }
 

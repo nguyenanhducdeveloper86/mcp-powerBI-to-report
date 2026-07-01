@@ -44,6 +44,14 @@ if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://ra
 $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
+### Windows PowerShell - Corporate SSL or previous npm install failed
+
+Use this when npm shows `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `@esbuild/win32-x64` missing, or a previous install left a partial `node_modules` folder.
+
+```powershell
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; taskkill /F /IM node.exe 2>$null; if (Test-Path .\node_modules) { Remove-Item -Recurse -Force .\node_modules }; $env:npm_config_strict_ssl="false"; npm cache clean --force; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
+```
+
 ### Windows PowerShell - Install Git/Node first, then setup MCP
 
 ```powershell
@@ -80,12 +88,12 @@ Prerequisites:
 ```bash
 git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git
 cd mcp-powerBI-to-report
-npm install
+npm install --include=optional
 npm run setup
 npm run build
 ```
 
-On macOS, `npm install` also ad-hoc signs the Microsoft native Modeling MCP binary so Claude can launch it without the unsigned-binary failure.
+On macOS, `npm install --include=optional` also ad-hoc signs the Microsoft native Modeling MCP binary so Claude can launch it without the unsigned-binary failure.
 
 On Windows, point `POWERBI_MODELING_MCP_COMMAND` to the native Microsoft Modeling MCP executable instead of `npx`:
 
