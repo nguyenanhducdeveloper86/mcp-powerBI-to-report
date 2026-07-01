@@ -38,32 +38,28 @@ curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI
 if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
 
-### Windows PowerShell - recommended
+### Windows PowerShell - recommended for company devices
+
+```powershell
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
+```
+
+This is the default Windows command for Vingroup/corporate machines. It does not download scripts from `raw.githubusercontent.com`; it uses `git clone` / `git pull`, then runs the installer from the local repo.
+
+### Windows PowerShell - standard network
+
+Use this when npm and GitHub downloads are not blocked by corporate SSL/media policy.
+
+```powershell
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE"
+```
+
+### Windows PowerShell - raw GitHub download
+
+Use this only when `raw.githubusercontent.com` is allowed.
 
 ```powershell
 iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-powerbi-mcp.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install-powerbi-mcp.ps1" -Workspace "GSM_MCP_POC_WORKSPACE"
-```
-
-### Windows PowerShell - when raw.githubusercontent.com is blocked
-
-Use this when company gateway blocks direct download from `raw.githubusercontent.com`, but `git clone` / `git pull` still works.
-
-```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; git pull; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE"
-```
-
-### Windows PowerShell - corporate SSL or previous npm install failed
-
-Use this when npm shows `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `@esbuild/win32-x64` missing, `MediaTypeBlocked`, or a previous install left a partial `node_modules` folder.
-
-```powershell
-iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-powerbi-mcp.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install-powerbi-mcp.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
-```
-
-If both `raw.githubusercontent.com` and npm SSL are blocked, run from the local clone:
-
-```powershell
-$dir="$HOME\mcp-powerBI-to-report"; cd $dir; git pull; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
 ```
 
 ### Windows PowerShell - explicit local repo command
