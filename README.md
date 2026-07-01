@@ -14,7 +14,63 @@ This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com
 - `execute_dax_report_query`
 - `execute_dax_dashboard_query` (compatibility alias)
 
-## Install
+## Quick Install for Claude Desktop
+
+Use these commands for a one-time setup on a new device.
+
+The setup installs npm dependencies, builds `dist/server.js`, selects the local Microsoft Power BI Modeling MCP binary for the OS, writes `.env`, updates Claude Desktop `mcpServers`, and configures:
+
+```text
+POWERBI_MODELING_MCP_ARGS=--start --authmode=interactive
+```
+
+This project does not use REST catalog login or device-login auth.
+
+### macOS - Git and Node already installed
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces GSM_MCP_POC_WORKSPACE --model sample-dataset
+```
+
+### macOS - Install Git/Node first, then setup MCP
+
+```bash
+if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces GSM_MCP_POC_WORKSPACE --model sample-dataset
+```
+
+### Windows PowerShell - Git and Node already installed
+
+```powershell
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+```
+
+### Windows PowerShell - Install Git/Node first, then setup MCP
+
+```powershell
+winget install --id Git.Git -e --source winget; winget install --id OpenJS.NodeJS.LTS -e --source winget; $env:Path=[System.Environment]::GetEnvironmentVariable("Path","Machine")+";"+[System.Environment]::GetEnvironmentVariable("Path","User"); $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+```
+
+If company policy blocks Homebrew, `winget`, or app installation, ask IT to install:
+
+- Git
+- Node.js LTS, which includes npm
+- Claude Desktop
+
+Then run the matching setup command above again.
+
+After setup, restart Claude Desktop completely and test:
+
+```text
+Use mcp-powerBI-to-report to diagnose the local Power BI MCP setup.
+```
+
+Then test Power BI access:
+
+```text
+Use mcp-powerBI-to-report to list semantic models in workspace GSM_MCP_POC_WORKSPACE.
+```
+
+## Manual Install
 
 Prerequisites:
 
@@ -47,7 +103,7 @@ node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp
 
 It writes a local `.env` file with mode `0600`. The MCP server loads this file automatically on start.
 
-## Claude Desktop Setup
+## Claude Desktop Setup Details
 
 ### One-line setup
 
@@ -79,10 +135,30 @@ Windows should run the same command from Git Bash. The script writes Windows-nat
 node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe
 ```
 
+PowerShell users should use the native PowerShell setup script, not `curl -fsSL`:
+
+```powershell
+cd C:\Users\<you>\mcp-powerBI-to-report
+powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+```
+
+If downloading from GitHub in PowerShell, use `Invoke-WebRequest`:
+
+```powershell
+iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.ps1" -OutFile setup-claude-desktop.ps1
+powershell -ExecutionPolicy Bypass -File .\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+```
+
 Optional npm alias:
 
 ```bash
 npm run setup:claude-desktop -- --workspaces test-mcp --model sale_vehicle-vf
+```
+
+PowerShell npm alias:
+
+```powershell
+npm run setup:claude-desktop:powershell -- -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
 ```
 
 After the script finishes, restart Claude Desktop completely.
@@ -231,12 +307,18 @@ npm run setup:agent -- --workspaces your-workspace-name --write-desktop-config
 
 ## Authentication
 
-This MCP entirely delegates authentication to the underlying Microsoft `@microsoft/powerbi-modeling-mcp` tool. 
-It uses Microsoft's interactive device flow or explicit credential arguments configured via `POWERBI_MODELING_MCP_ARGS`.
+This MCP entirely delegates authentication to the underlying Microsoft `@microsoft/powerbi-modeling-mcp` tool.
+It uses the Microsoft Modeling MCP interactive auth mode or explicit authentication arguments configured via `POWERBI_MODELING_MCP_ARGS`.
 
 ## Usage Examples
 
 Ask Claude:
+
+```text
+Use mcp-powerBI-to-report to diagnose the local Power BI MCP setup.
+```
+
+If diagnostics are clean, ask Claude:
 
 ```text
 Use mcp-powerBI-to-report to list semantic models in workspace test-mcp.

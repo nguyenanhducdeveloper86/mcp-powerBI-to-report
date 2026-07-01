@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -24,6 +25,18 @@ const server = new McpServer({
   name: "mcp-powerBI-to-report",
   version: "0.1.0"
 });
+
+server.registerTool(
+  "diagnose_powerbi_mcp",
+  {
+    title: "Diagnose local Power BI MCP setup",
+    description: "Inspect local MCP configuration without calling Power BI. Use this first when Claude cannot see tools, Microsoft Modeling MCP is not active, authentication fails, or workspace/model defaults are unclear.",
+    inputSchema: {}
+  },
+  async () => {
+    return jsonResult(buildDiagnostics());
+  }
+);
 
 const semanticModelCandidateSchema = z.object({
   workspaceName: z.string().optional(),
@@ -775,6 +788,74 @@ function jsonResult(value: unknown) {
         text: JSON.stringify(value, null, 2)
       }
     ]
+  };
+}
+
+function buildDiagnostics() {
+  const modelingCommand = process.env.POWERBI_MODELING_MCP_COMMAND || "npx";
+  const modelingArgs = process.env.POWERBI_MODELING_MCP_ARGS || "-y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive";
+  const knownWorkspaces = uniqueNonEmpty(configuredWorkspaces());
+  const defaultWorkspace = process.env.POWERBI_DEFAULT_WORKSPACE || "";
+  const defaultSemanticModel = process.env.POWERBI_DEFAULT_SEMANTIC_MODEL || "";
+  const reportOutputDir = process.env.POWERBI_REPORT_OUTPUT_DIR || process.env.POWERBI_DASHBOARD_OUTPUT_DIR || "";
+  const commandLooksLikePath = /[\\/]/.test(modelingCommand) || modelingCommand.endsWith(".exe");
+  const commandExists = commandLooksLikePath ? existsSync(modelingCommand) : true;
+  const argsUseInteractiveAuth = modelingArgs
+    .split(/\s+/)
+    .some(arg => arg.toLowerCase() === "--authmode=interactive");
+  const warnings: string[] = [];
+
+  if (!commandExists) {
+    warnings.push(`POWERBI_MODELING_MCP_COMMAND does not exist: ${modelingCommand}`);
+  }
+  if (!argsUseInteractiveAuth) {
+    warnings.push("POWERBI_MODELING_MCP_ARGS should include --authmode=interactive. This project does not run REST/device-login auth.");
+  }
+  if (knownWorkspaces.length === 0) {
+    warnings.push("No workspace configured. Set POWERBI_KNOWN_WORKSPACES or POWERBI_DEFAULT_WORKSPACE.");
+  }
+  if (!defaultWorkspace) {
+    warnings.push("No default workspace configured. Tools still work when workspaceName is passed explicitly.");
+  }
+  if (!defaultSemanticModel) {
+    warnings.push("No default semantic model configured. DAX tools require semanticModelName unless POWERBI_DEFAULT_SEMANTIC_MODEL is set.");
+  }
+
+  return {
+    source: "mcp-powerBI-to-report",
+    status: warnings.length ? "needs_attention" : "ready_for_powerbi_login",
+    transport: "stdio",
+    runtime: {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch
+    },
+    modelingMcp: {
+      command: modelingCommand,
+      commandExists,
+      args: modelingArgs,
+      authMode: argsUseInteractiveAuth ? "interactive" : "not_interactive"
+    },
+    powerBiDefaults: {
+      knownWorkspaces,
+      defaultWorkspace,
+      defaultSemanticModel,
+      reportOutputDir
+    },
+    checks: {
+      localMcpServerLoaded: true,
+      usesRemoteMcpEndpoint: false,
+      usesRestDeviceLogin: false,
+      requiresExplicitWorkspace: true
+    },
+    nextSteps: warnings.length
+      ? warnings
+      : [
+        "Call list_semantic_models_in_workspace with the target workspace name.",
+        "If Microsoft login appears, authenticate with the required VSF/company account.",
+        "Then call execute_dax_query with a small query such as EVALUATE ROW(\"Test\", 1)."
+      ],
+    warnings
   };
 }
 

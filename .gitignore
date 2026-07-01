@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .DS_Store
+.omc/
 *.log
 .powerbi-token-cache.json
 powerbi-report-output/
