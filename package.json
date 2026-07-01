@@ -1,6 +1,6 @@
 {
   "name": "mcp-powerbi-to-report",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Claude-compatible MCP companion for Microsoft Power BI Modeling MCP with Fabric catalog discovery and HTML executive report output.",
   "type": "module",
   "bin": {

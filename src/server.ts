@@ -23,7 +23,7 @@ const modelingBridge = new ModelingMcpBridge();
 
 const server = new McpServer({
   name: "mcp-powerBI-to-report",
-  version: "0.1.0"
+  version: "0.1.2"
 });
 
 server.registerTool(

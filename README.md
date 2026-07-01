@@ -18,7 +18,7 @@ This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com
 
 Use these commands for a one-time setup on a new device.
 
-The setup installs npm dependencies, builds `dist/server.js`, selects the local Microsoft Power BI Modeling MCP binary for the OS, writes `.env`, updates Claude Desktop `mcpServers`, and configures:
+The setup installs production npm dependencies, uses the prebuilt `dist/server.js`, selects the local Microsoft Power BI Modeling MCP binary for the OS, writes `.env`, updates Claude Desktop `mcpServers`, and configures:
 
 ```text
 POWERBI_MODELING_MCP_ARGS=--start --authmode=interactive
@@ -38,24 +38,26 @@ curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI
 if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
 
-### Windows PowerShell - Git and Node already installed
+### Windows PowerShell - recommended
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
+iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-powerbi-mcp.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install-powerbi-mcp.ps1" -Workspace "GSM_MCP_POC_WORKSPACE"
 ```
 
-### Windows PowerShell - Corporate SSL or previous npm install failed
+### Windows PowerShell - corporate SSL or previous npm install failed
 
-Use this when npm shows `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `@esbuild/win32-x64` missing, or a previous install left a partial `node_modules` folder.
+Use this when npm shows `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`, `@esbuild/win32-x64` missing, `MediaTypeBlocked`, or a previous install left a partial `node_modules` folder.
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; taskkill /F /IM node.exe 2>$null; if (Test-Path .\node_modules) { Remove-Item -Recurse -Force .\node_modules }; $env:npm_config_strict_ssl="false"; npm cache clean --force; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
+iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/install-windows.ps1" -OutFile "$env:TEMP\install-powerbi-mcp.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\install-powerbi-mcp.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
 ```
 
-### Windows PowerShell - Install Git/Node first, then setup MCP
+### Windows PowerShell - explicit local repo command
+
+Use this if the repo is already cloned and Git/Node are already installed.
 
 ```powershell
-winget install --id Git.Git -e --source winget; winget install --id OpenJS.NodeJS.LTS -e --source winget; $env:Path=[System.Environment]::GetEnvironmentVariable("Path","Machine")+";"+[System.Environment]::GetEnvironmentVariable("Path","User"); $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
+$dir="$HOME\mcp-powerBI-to-report"; cd $dir; git pull; npm install --omit=dev --include=optional; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall
 ```
 
 If company policy blocks Homebrew, `winget`, or app installation, ask IT to install:
@@ -88,12 +90,11 @@ Prerequisites:
 ```bash
 git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git
 cd mcp-powerBI-to-report
-npm install --include=optional
+npm install --omit=dev --include=optional
 npm run setup
-npm run build
 ```
 
-On macOS, `npm install --include=optional` also ad-hoc signs the Microsoft native Modeling MCP binary so Claude can launch it without the unsigned-binary failure.
+On macOS, `npm install --omit=dev --include=optional` also ad-hoc signs the Microsoft native Modeling MCP binary so Claude can launch it without the unsigned-binary failure.
 
 On Windows, point `POWERBI_MODELING_MCP_COMMAND` to the native Microsoft Modeling MCP executable instead of `npx`:
 
@@ -259,7 +260,7 @@ macOS example — Intel (x64):
 }
 ```
 
-> **macOS note:** `npm install` automatically ad-hoc signs the Microsoft native binary. If Claude Desktop shows an error launching the binary, run `npm install` again from the project directory, then restart Claude Desktop.
+> **macOS note:** `npm install --omit=dev --include=optional` automatically ad-hoc signs the Microsoft native binary. If Claude Desktop shows an error launching the binary, run that command again from the project directory, then restart Claude Desktop.
 
 Windows example:
 

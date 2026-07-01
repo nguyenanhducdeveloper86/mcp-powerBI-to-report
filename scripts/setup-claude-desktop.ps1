@@ -54,7 +54,7 @@ if (-not $ModelingArgs) { $ModelingArgs = "--start --authmode=interactive" }
 Set-Location $RepoDir
 
 if (-not $SkipInstall -and -not $DryRun) {
-  npm install --include=optional
+  npm install --omit=dev --include=optional
 }
 
 $NativeModelingBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
@@ -62,7 +62,7 @@ if (-not $ModelingCommand) {
   if (Test-Path $NativeModelingBinary) {
     $ModelingCommand = $NativeModelingBinary
   } else {
-    throw "Cannot find Microsoft Modeling MCP Windows binary at: $NativeModelingBinary. Run npm install --include=optional, then re-run this script."
+    throw "Cannot find Microsoft Modeling MCP Windows binary at: $NativeModelingBinary. Run npm install --omit=dev --include=optional, then re-run this script."
   }
 }
 
@@ -84,7 +84,9 @@ if ($DryRun) {
   exit 0
 }
 
-npm run build
+if (-not (Test-Path $ServerJs)) {
+  throw "Missing prebuilt server: $ServerJs. Use the GitHub main branch that includes dist/server.js, or run npm install && npm run build on a development machine."
+}
 New-Item -ItemType Directory -Force -Path $ReportDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ConfigPath) | Out-Null
 

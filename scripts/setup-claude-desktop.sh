@@ -263,7 +263,7 @@ fi
 
 cd "$repo_dir"
 if [[ "$skip_install" -eq 0 && "$dry_run" -eq 0 ]]; then
-  npm install --include=optional
+  npm install --omit=dev --include=optional
 fi
 
 native_binary=""
@@ -278,7 +278,7 @@ if [[ -z "$modeling_command" ]]; then
     modeling_command="$native_binary"
   elif [[ "$os_id" == "windows" ]]; then
     echo "Cannot find Windows Microsoft Modeling MCP binary at: $native_binary" >&2
-    echo "Run npm install --include=optional from this repo in Git Bash, then re-run this script." >&2
+    echo "Run npm install --omit=dev --include=optional from this repo in Git Bash, then re-run this script." >&2
     exit 1
   else
     modeling_command="npx"
@@ -325,7 +325,11 @@ EOF
   exit 0
 fi
 
-npm run build
+if [[ ! -f "$server_js" ]]; then
+  echo "Missing prebuilt server: $server_js" >&2
+  echo "Use the GitHub main branch that includes dist/server.js, or run npm install && npm run build on a development machine." >&2
+  exit 1
+fi
 mkdir -p "$report_dir_unix"
 mkdir -p "$(dirname "$config_path_unix")"
 
