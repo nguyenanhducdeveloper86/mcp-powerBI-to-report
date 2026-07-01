@@ -4,9 +4,9 @@ Use this checklist before handing the setup to a new user.
 
 ## 1. Installer coverage
 
-- macOS: run `bash scripts/setup-claude-desktop.sh --workspaces <workspace> --model <model>`.
+- macOS: run `bash scripts/setup-claude-desktop.sh --workspace <workspace>`.
 - Windows Git Bash: run the same bash command.
-- Windows PowerShell: run `powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces <workspace> -Model <model>`.
+- Windows PowerShell: run `powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace <workspace>`.
 - PowerShell download must use `Invoke-WebRequest` or `iwr`, not `curl -fsSL`.
 
 ## 2. MCP activation diagnostics

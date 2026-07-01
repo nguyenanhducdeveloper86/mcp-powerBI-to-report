@@ -43,6 +43,9 @@ Require-Command node
 Require-Command npm
 
 $RepoDir = Split-Path -Parent $PSScriptRoot
+if (-not $Workspaces -and $Workspace) {
+  $Workspaces = $Workspace
+}
 if (-not $Workspaces) { $Workspaces = "test-mcp" }
 if (-not $Workspace) { $Workspace = First-CsvValue $Workspaces }
 if (-not $ReportDir) { $ReportDir = Join-Path $HOME "powerbi-report-output" }

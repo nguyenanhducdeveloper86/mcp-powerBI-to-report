@@ -9,8 +9,8 @@ Usage:
   bash scripts/setup-claude-desktop.sh [options]
 
 Options:
+  --workspace <name>          Default workspace and known workspace for a single-workspace setup
   --workspaces <csv>          Known Power BI/Fabric workspaces. Default: POWERBI_KNOWN_WORKSPACES or test-mcp
-  --workspace <name>          Default workspace. Default: first value from --workspaces
   --model <name>              Optional default semantic model fallback. Default: POWERBI_DEFAULT_SEMANTIC_MODEL
   --report-dir <path>         HTML report output folder. Default: ~/powerbi-report-output
   --config <path>             Claude Desktop config path override
@@ -22,8 +22,8 @@ Options:
   -h, --help                  Show this help
 
 Examples:
-  bash scripts/setup-claude-desktop.sh --workspaces test-mcp --model sale_vehicle-vf
-  curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces test-mcp --model sale_vehicle-vf
+  bash scripts/setup-claude-desktop.sh --workspace test-mcp
+  curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace test-mcp
 EOF
 }
 
@@ -53,15 +53,19 @@ modeling_command="${POWERBI_MODELING_MCP_COMMAND:-}"
 modeling_args="${POWERBI_MODELING_MCP_ARGS:-}"
 skip_install=0
 dry_run=0
+known_workspaces_explicit=0
+default_workspace_explicit=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workspaces)
       known_workspaces="${2:?Missing value for --workspaces}"
+      known_workspaces_explicit=1
       shift 2
       ;;
     --workspace)
       default_workspace="${2:?Missing value for --workspace}"
+      default_workspace_explicit=1
       shift 2
       ;;
     --model)
@@ -107,6 +111,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$default_workspace_explicit" -eq 1 && "$known_workspaces_explicit" -eq 0 ]]; then
+  known_workspaces="$default_workspace"
+fi
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then

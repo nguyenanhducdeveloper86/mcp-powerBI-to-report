@@ -29,25 +29,25 @@ This project does not use REST catalog login or device-login auth.
 ### macOS - Git and Node already installed
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces GSM_MCP_POC_WORKSPACE --model sample-dataset
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
 
 ### macOS - Install Git/Node first, then setup MCP
 
 ```bash
-if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces GSM_MCP_POC_WORKSPACE --model sample-dataset
+if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
 
 ### Windows PowerShell - Git and Node already installed
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
 ### Windows PowerShell - Install Git/Node first, then setup MCP
 
 ```powershell
-winget install --id Git.Git -e --source winget; winget install --id OpenJS.NodeJS.LTS -e --source winget; $env:Path=[System.Environment]::GetEnvironmentVariable("Path","Machine")+";"+[System.Environment]::GetEnvironmentVariable("Path","User"); $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+winget install --id Git.Git -e --source winget; winget install --id OpenJS.NodeJS.LTS -e --source winget; $env:Path=[System.Environment]::GetEnvironmentVariable("Path","Machine")+";"+[System.Environment]::GetEnvironmentVariable("Path","User"); $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
 If company policy blocks Homebrew, `winget`, or app installation, ask IT to install:
@@ -112,7 +112,7 @@ The fastest path is the bundled Claude Desktop setup script. It detects macOS vs
 From an existing clone:
 
 ```bash
-bash scripts/setup-claude-desktop.sh --workspaces test-mcp --model sale_vehicle-vf
+bash scripts/setup-claude-desktop.sh --workspace test-mcp
 ```
 
 From a fresh machine:
@@ -120,13 +120,13 @@ From a fresh machine:
 ```bash
 git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git
 cd mcp-powerBI-to-report
-bash scripts/setup-claude-desktop.sh --workspaces test-mcp --model sale_vehicle-vf
+bash scripts/setup-claude-desktop.sh --workspace test-mcp
 ```
 
 Or one command that clones to `~/mcp-powerBI-to-report` when needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspaces test-mcp --model sale_vehicle-vf
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace test-mcp
 ```
 
 Windows should run the same command from Git Bash. The script writes Windows-native paths into Claude Desktop config and points `POWERBI_MODELING_MCP_COMMAND` directly to:
@@ -139,26 +139,26 @@ PowerShell users should use the native PowerShell setup script, not `curl -fsSL`
 
 ```powershell
 cd C:\Users\<you>\mcp-powerBI-to-report
-powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
 If downloading from GitHub in PowerShell, use `Invoke-WebRequest`:
 
 ```powershell
 iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.ps1" -OutFile setup-claude-desktop.ps1
-powershell -ExecutionPolicy Bypass -File .\setup-claude-desktop.ps1 -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+powershell -ExecutionPolicy Bypass -File .\setup-claude-desktop.ps1 -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
 Optional npm alias:
 
 ```bash
-npm run setup:claude-desktop -- --workspaces test-mcp --model sale_vehicle-vf
+npm run setup:claude-desktop -- --workspace test-mcp
 ```
 
 PowerShell npm alias:
 
 ```powershell
-npm run setup:claude-desktop:powershell -- -Workspaces GSM_MCP_POC_WORKSPACE -Model sample-dataset
+npm run setup:claude-desktop:powershell -- -Workspace GSM_MCP_POC_WORKSPACE
 ```
 
 After the script finishes, restart Claude Desktop completely.
