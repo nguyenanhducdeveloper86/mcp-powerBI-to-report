@@ -51,7 +51,7 @@ if (!(Test-Path "$RepoDir\.git")) {
 
 Set-Location $RepoDir
 
-taskkill /F /IM node.exe 2>$null
+Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 if ($Clean -or $CorporateNpm) {
   if (Test-Path .\node_modules) {
