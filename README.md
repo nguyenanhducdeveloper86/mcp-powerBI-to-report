@@ -71,6 +71,8 @@ Restart Claude Desktop completely, then use MCP server: mcp-powerBI-to-report
 
 Close Claude Desktop completely before running setup. Use Quit from the system tray, not just the window close button, so Claude does not overwrite `claude_desktop_config.json` while setup is editing it.
 
+The Windows setup script also stops running Claude Desktop processes before writing config, backs up the existing config, recovers from the latest valid backup if the current config is invalid JSON, writes through a temp file, then validates JSON before and after replacing the live config.
+
 ### Windows PowerShell - installer script for company devices
 
 ```powershell
