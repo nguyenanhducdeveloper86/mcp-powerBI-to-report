@@ -1003,10 +1003,11 @@ function renderDatasetChart(rows: any[], profile: any): string {
   const dimension = profile.primaryDimension;
   if (!rows.length) return "<p>No rows returned from this semantic model.</p>";
   if (!metric) return renderEvidenceTable(rows, profile.columns, 8);
-  if (profile.shape === "time_series" && dimension) return renderTrendBars(rows, dimension, metric);
+  if (profile.shape === "time_series" && dimension) return renderLineChart(rows, dimension, metric);
   if ((profile.shape === "categorical_ranking" || profile.shape === "cross_dimension") && dimension) {
-    return renderGenericBars(aggregateRowsByDimension(rows, dimension, metric), dimension, metric, 10);
+    return renderDonutChart(rows, dimension, metric);
   }
+  if (profile.shape === "multi_metric" && profile.metrics.length >= 2) return renderScatterChart(rows, profile.metrics[0], profile.metrics[1], dimension);
   if (profile.shape === "multi_metric" || profile.shape === "single_metric") return renderMetricScorecard(rows, profile.metrics);
   return renderEvidenceTable(rows, profile.columns, 8);
 }
@@ -1091,14 +1092,171 @@ function missingEvidenceForProfile(profile: any): string {
   return missing.length ? missing.join(", ") : "root-cause fields such as plan, margin, inventory, discount, campaign";
 }
 
-function aggregateRowsByDimension(rows: any[], dimension: string, metric: string): any[] {
+function aggregateRowsByDimension(rows: any[], dimension: string, metric: string, extraMetrics: string[] = []): any[] {
   const groups = new Map();
+  const metrics = unique([metric, ...extraMetrics].filter(Boolean));
   for (const row of rows) {
     const label = String(row[dimension] ?? "").trim();
     if (!label) continue;
-    groups.set(label, (groups.get(label) ?? 0) + numericValue(row[metric]));
+    if (!groups.has(label)) groups.set(label, Object.fromEntries(metrics.map(column => [column, 0])));
+    const aggregate = groups.get(label);
+    for (const column of metrics) {
+      aggregate[column] = (aggregate[column] ?? 0) + numericValue(row[column]);
+    }
   }
-  return [...groups.entries()].map(([label, value]) => ({ [dimension]: label, [metric]: value }));
+  return [...groups.entries()].map(([label, values]) => ({ [dimension]: label, ...values }));
+}
+
+function numericColumns(rows: any[], columns: string[]): string[] {
+  return columns.filter(column => rows.some(row => typeof row[column] === "number" && Number.isFinite(row[column])));
+}
+
+function findBestCategoricalColumn(rows: any[], columns: string[], excluded: any[] = []): string | undefined {
+  const excludedSet = new Set(excluded.filter(Boolean));
+  const metadata = new Set(["Scope","Dimension","Member","DataSource","EvidenceRole","WorkspaceName","SemanticModelName"]);
+  return columns.find(column => {
+    if (excludedSet.has(column) || metadata.has(column) || isMonthLikeColumn(column, rows)) return false;
+    const values = unique(rows.map(row => String(row[column] ?? "").trim()).filter(Boolean));
+    return values.length >= 2 && values.length <= Math.max(60, rows.length);
+  });
+}
+
+function findGeoColumn(rows: any[], columns: string[]): string | undefined {
+  const geoTokens = ["province","region","city","country","market","location","geo","tinh","thanhpho","khuvuc","mien"];
+  return columns.find(column => {
+    const normalized = normalizeForMatch(column);
+    return geoTokens.some(token => normalized.includes(token)) && rows.some(row => String(row[column] ?? "").trim());
+  });
+}
+
+function findLatitudeColumn(columns: string[]): string | undefined {
+  return columns.find(column => {
+    const normalized = normalizeForMatch(column);
+    return normalized === "lat" || normalized.includes("latitude") || normalized.includes("vido");
+  });
+}
+
+function findLongitudeColumn(columns: string[]): string | undefined {
+  return columns.find(column => {
+    const normalized = normalizeForMatch(column);
+    return normalized === "lon" || normalized === "lng" || normalized.includes("longitude") || normalized.includes("kinhdo");
+  });
+}
+
+function chartPalette(): string[] {
+  return ["#1769aa", "#08875d", "#b75f00", "#c5352b", "#7a5af8", "#0e9384", "#d4447a", "#667085", "#4e5ba6"];
+}
+
+function svgBox() {
+  return { width: 720, height: 320, left: 58, right: 688, top: 28, bottom: 260 };
+}
+
+function chartBounds(values: number[]) {
+  const finite = values.filter(value => Number.isFinite(value));
+  if (!finite.length) return { min: 0, max: 1 };
+  let min = Math.min(...finite);
+  let max = Math.max(...finite);
+  if (min === max) {
+    min = Math.min(0, min);
+    max = max === 0 ? 1 : max * 1.1;
+  }
+  if (min > 0) min = 0;
+  return { min, max };
+}
+
+function scaleIndex(index: number, count: number, left: number, right: number): number {
+  if (count <= 1) return (left + right) / 2;
+  return left + (index / (count - 1)) * (right - left);
+}
+
+function scaleValue(value: number, min: number, max: number, lower: number, upper: number): number {
+  const ratio = normalizedRatio(value, min, max);
+  return lower + ratio * (upper - lower);
+}
+
+function normalizedRatio(value: number, min: number, max: number): number {
+  if (max === min) return 0.5;
+  return Math.max(0, Math.min(1, (value - min) / (max - min)));
+}
+
+function renderChartGrid(box): string {
+  return `<line class="native-axis" x1="${box.left}" x2="${box.right}" y1="${box.bottom}" y2="${box.bottom}"></line>
+    <line class="native-axis" x1="${box.left}" x2="${box.left}" y1="${box.top}" y2="${box.bottom}"></line>
+    ${[0, 0.25, 0.5, 0.75, 1].map(ratio => {
+      const y = box.bottom - ratio * (box.bottom - box.top);
+      return `<line class="native-grid-line" x1="${box.left}" x2="${box.right}" y1="${y}" y2="${y}"></line>`;
+    }).join("")}`;
+}
+
+function renderYAxisLabels(bounds, box, metric: string): string {
+  return [0, 0.5, 1].map(ratio => {
+    const value = bounds.min + ratio * (bounds.max - bounds.min);
+    const y = box.bottom - ratio * (box.bottom - box.top);
+    return `<text class="native-label" x="${box.left - 8}" y="${y + 4}" text-anchor="end">${escapeHtml(shortNumber(metric, value))}</text>`;
+  }).join("");
+}
+
+function renderLegend(items: { label: string; value?: string; color: string }[]): string {
+  return `<div class="native-legend">${items.map(item => `<div class="legend-item"><i class="legend-swatch" style="background:${escapeHtml(item.color)}"></i><span class="legend-name" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value ?? "")}</strong></div>`).join("")}</div>`;
+}
+
+function collapseSmallSlices(rows: any[], dimension: string, metric: string, limit: number): any[] {
+  if (rows.length <= limit) return rows;
+  const head = rows.slice(0, limit - 1);
+  const otherValue = rows.slice(limit - 1).reduce((sum, row) => sum + numericValue(row[metric]), 0);
+  return [...head, { [dimension]: "Other", [metric]: otherValue }];
+}
+
+function describePieSegment(cx: number, cy: number, radius: number, startAngle: number, endAngle: number): string {
+  if (endAngle - startAngle >= 359.99) {
+    return `M ${cx} ${cy} m ${-radius} 0 a ${radius} ${radius} 0 1 0 ${radius * 2} 0 a ${radius} ${radius} 0 1 0 ${-radius * 2} 0`;
+  }
+  const start = polarToCartesian(cx, cy, radius, endAngle);
+  const end = polarToCartesian(cx, cy, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+}
+
+function describeDonutSegment(cx: number, cy: number, outerRadius: number, innerRadius: number, startAngle: number, endAngle: number): string {
+  if (endAngle - startAngle >= 359.99) {
+    return `M ${cx - outerRadius} ${cy} a ${outerRadius} ${outerRadius} 0 1 0 ${outerRadius * 2} 0 a ${outerRadius} ${outerRadius} 0 1 0 ${-outerRadius * 2} 0 M ${cx - innerRadius} ${cy} a ${innerRadius} ${innerRadius} 0 1 1 ${innerRadius * 2} 0 a ${innerRadius} ${innerRadius} 0 1 1 ${-innerRadius * 2} 0`;
+  }
+  const outerStart = polarToCartesian(cx, cy, outerRadius, endAngle);
+  const outerEnd = polarToCartesian(cx, cy, outerRadius, startAngle);
+  const innerStart = polarToCartesian(cx, cy, innerRadius, endAngle);
+  const innerEnd = polarToCartesian(cx, cy, innerRadius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 0 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 1 ${innerStart.x} ${innerStart.y}`,
+    "Z"
+  ].join(" ");
+}
+
+function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees: number) {
+  const angleInRadians = (angleInDegrees - 90) * Math.PI / 180;
+  return {
+    x: roundSvg(cx + radius * Math.cos(angleInRadians)),
+    y: roundSvg(cy + radius * Math.sin(angleInRadians))
+  };
+}
+
+function roundSvg(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function shortLabel(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+function shortNumber(metric: string, value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${formatNumber(value / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${formatNumber(value / 1_000_000)}M`;
+  if (abs >= 1_000) return `${formatNumber(value / 1_000)}K`;
+  return formatMetricValue(metric, value);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1180,7 +1338,7 @@ function renderDashboardHtml(input) {
           modeSection = renderMonthExtremesSection(input);
           analysisSection = renderAnalysisTables(input.rows, input.analysis);
         }
-        chartHtml = renderMonthlyBars(input.rows, input.analysis?.dimension, input.analysis?.metric);
+        chartHtml = renderLineChart(input.rows, input.analysis?.dimension, input.analysis?.metric);
         break;
       case "ranking":
         modeSection = renderRankingSection(input);
@@ -1188,11 +1346,11 @@ function renderDashboardHtml(input) {
         break;
       case "trend":
         modeSection = renderTrendSection(input);
-        chartHtml   = renderTrendBars(input.rows, dim, metric);
+        chartHtml   = renderLineChart(input.rows, dim, metric);
         break;
       case "distribution":
         modeSection = renderDistributionSection(input);
-        chartHtml   = renderDistributionBars(input.rows, dim, metric);
+        chartHtml   = renderDonutChart(input.rows, dim, metric);
         break;
       default:
         chartHtml = renderGenericBars(input.rows, dim, metric);
@@ -1275,6 +1433,27 @@ function renderDashboardHtml(input) {
     .visual-name { min-width: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
     .visual-sub { display: block; color: var(--muted); font-size: 11px; font-weight: 500; margin-top: 2px; }
     .visual-metric { text-align: right; font-weight: 760; font-size: 13px; }
+    .native-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; margin-top: 18px; }
+    .native-card { border: 1px solid var(--line); border-radius: 8px; background: #fbfcfd; padding: 14px; min-height: 320px; overflow: hidden; }
+    .native-card h3 { margin: 0 0 8px; font-size: 14px; line-height: 1.25; }
+    .native-card p { font-size: 12px; margin-bottom: 10px; }
+    .native-svg { width: 100%; height: auto; display: block; background: #fff; border: 1px solid #e4eaf1; border-radius: 8px; }
+    .native-axis { stroke: #9aa7b5; stroke-width: 1; }
+    .native-grid-line { stroke: #e8eef5; stroke-width: 1; }
+    .native-line { fill: none; stroke: var(--blue); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    .native-line.secondary { stroke: var(--green); }
+    .native-area { fill: rgba(23,105,170,.08); }
+    .native-point { fill: #fff; stroke: var(--blue); stroke-width: 2; }
+    .native-label { fill: #667085; font-size: 11px; }
+    .native-value { fill: #344054; font-size: 11px; font-weight: 700; }
+    .native-legend { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px 12px; margin-top: 10px; }
+    .legend-item { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; gap: 7px; align-items: center; font-size: 12px; color: #344054; }
+    .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+    .legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .geo-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .geo-card { min-height: 82px; border: 1px solid var(--line); border-left: 5px solid var(--blue); border-radius: 8px; padding: 10px; background: #fff; }
+    .geo-card b { display: block; margin-bottom: 5px; overflow-wrap: anywhere; }
+    .geo-card span { display: block; color: var(--muted); font-size: 12px; }
     .heat-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
     .heat-cell { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfd; border-left: 5px solid var(--blue); min-height: 104px; }
     .heat-cell.risk { border-left-color: var(--red); } .heat-cell.scale { border-left-color: var(--green); } .heat-cell.warn { border-left-color: var(--amber); }
@@ -1308,12 +1487,12 @@ function renderDashboardHtml(input) {
     .query { margin-top: 14px; padding: 12px; border-radius: 8px; background: #101828; color: #f2f4f7; overflow: auto; font-size: 12px; line-height: 1.45; }
     @media (max-width: 900px) {
       main { padding: 18px; }
-      header, .content, .exec-grid, .analysis-grid, .dataset-grid { grid-template-columns: 1fr; }
+      header, .content, .exec-grid, .analysis-grid, .dataset-grid, .native-grid { grid-template-columns: 1fr; }
       .meta { text-align: left; }
       .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 560px) {
-      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .source-list, .decision-cards, .waterfall { grid-template-columns: 1fr; }
+      .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .source-list, .decision-cards, .waterfall, .native-legend, .geo-cards { grid-template-columns: 1fr; }
       .bar-row { grid-template-columns: 1fr; gap: 6px; }
       .visual-row { grid-template-columns: 1fr; }
       .visual-metric { text-align: left; }
@@ -1369,6 +1548,8 @@ function renderDashboardHtml(input) {
         ${chartHtml || "<p>No chart data available.</p>"}
       </article>
     </section>`}
+
+    ${multiDatasetMode ? "" : renderNativeChartGallery(input)}
 
     <section class="panel print-hidden" style="margin-top:18px">
       <h2>Question</h2>
@@ -1743,6 +1924,217 @@ function renderGenericBars(rows: any[], dim: string, metric: string, limit = 15)
     const lbl = String(r[dim] ?? "");
     return `<div class="bar-row"><div class="bar-label" title="${escapeHtml(lbl)}">${escapeHtml(lbl)}</div><div class="track"><div class="fill" style="width:${Math.max(3, Math.round(Math.abs(v)/max*100))}%"></div></div><div class="bar-value">${escapeHtml(formatMetricValue(metric, v))}</div></div>`;
   }).join("")}</div>`;
+}
+
+function renderNativeChartGallery(input): string {
+  const rows = input.rows ?? [];
+  const columns = input.columns ?? unique(rows.flatMap(row => Object.keys(row)));
+  if (!rows.length || !columns.length) return "";
+
+  const metrics = numericColumns(rows, columns);
+  const metric = input.intent?.primaryMetric ?? metrics[0];
+  const secondMetric = metrics.find(column => column !== metric);
+  const timeDimension = findMonthColumn(rows, columns);
+  const categoricalDimension = findBestCategoricalColumn(rows, columns, [timeDimension]);
+  const axisDimension = timeDimension ?? categoricalDimension ?? input.intent?.primaryDimension;
+  const geoColumn = findGeoColumn(rows, columns);
+  const charts = [];
+
+  if (timeDimension && metric) {
+    charts.push(renderNativeCard("Line chart", `Actual time-series line for ${metric} over ${timeDimension}.`, renderLineChart(rows, timeDimension, metric)));
+  }
+  if (axisDimension && metric && secondMetric) {
+    charts.push(renderNativeCard("Combo chart", `Bars show ${metric}; line shows ${secondMetric}.`, renderComboChart(rows, axisDimension, metric, secondMetric)));
+  }
+  if (categoricalDimension && metric) {
+    charts.push(renderNativeCard("Pie chart", `Share of ${metric} by ${categoricalDimension}.`, renderPieChart(rows, categoricalDimension, metric)));
+    charts.push(renderNativeCard("Donut chart", `Contribution mix for ${metric} by ${categoricalDimension}.`, renderDonutChart(rows, categoricalDimension, metric)));
+  }
+  if (metrics.length >= 2) {
+    charts.push(renderNativeCard("Scatter plot", `${metrics[0]} versus ${metrics[1]}${categoricalDimension ? `, labelled by ${categoricalDimension}` : ""}.`, renderScatterChart(rows, metrics[0], metrics[1], categoricalDimension)));
+  }
+  if (geoColumn || findLatitudeColumn(columns) || findLongitudeColumn(columns)) {
+    charts.push(renderNativeCard("Map chart", geoColumn ? `Geo contribution by ${geoColumn}.` : "Latitude/longitude bubble map.", renderMapChart(rows, columns, metric, geoColumn)));
+  }
+
+  if (!charts.length) return "";
+  return `<section class="panel">
+    <h2>Native chart formats</h2>
+    <p class="analysis-note">SVG visuals are rendered directly in the HTML report, so the file stays self-contained and works offline in Claude Desktop.</p>
+    <div class="native-grid">${charts.join("")}</div>
+  </section>`;
+}
+
+function renderNativeCard(title: string, subtitle: string, chart: string): string {
+  return `<article class="native-card"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(subtitle)}</p>${chart}</article>`;
+}
+
+function renderLineChart(rows: any[], dimension: string, metric: string): string {
+  if (!dimension || !metric || !rows.length) return "<p>No line chart data.</p>";
+  const data = aggregateRowsByDimension(rows, dimension, metric).sort((a, b) => compareDimension(a[dimension], b[dimension]));
+  if (!data.length) return "<p>No line chart data.</p>";
+  const bounds = chartBounds(data.map(row => numericValue(row[metric])));
+  const box = svgBox();
+  const points = data.map((row, index) => {
+    const x = scaleIndex(index, data.length, box.left, box.right);
+    const y = scaleValue(numericValue(row[metric]), bounds.min, bounds.max, box.bottom, box.top);
+    return { x, y, label: String(row[dimension] ?? ""), value: numericValue(row[metric]) };
+  });
+  const polyline = points.map(point => `${point.x},${point.y}`).join(" ");
+  const area = `${box.left},${box.bottom} ${polyline} ${box.right},${box.bottom}`;
+  const labelStep = Math.max(1, Math.ceil(points.length / 6));
+  return `<svg class="native-svg" viewBox="0 0 ${box.width} ${box.height}" role="img" aria-label="${escapeHtml(metric)} line chart">
+    ${renderChartGrid(box)}
+    <polyline class="native-area" points="${area}"></polyline>
+    <polyline class="native-line" points="${polyline}"></polyline>
+    ${points.map(point => `<circle class="native-point" cx="${point.x}" cy="${point.y}" r="4"><title>${escapeHtml(point.label)}: ${escapeHtml(formatMetricValue(metric, point.value))}</title></circle>`).join("")}
+    ${points.filter((_, index) => index % labelStep === 0 || index === points.length - 1).map(point => `<text class="native-label" x="${point.x}" y="${box.bottom + 22}" text-anchor="middle">${escapeHtml(shortLabel(point.label, 10))}</text>`).join("")}
+    ${renderYAxisLabels(bounds, box, metric)}
+  </svg>`;
+}
+
+function renderComboChart(rows: any[], dimension: string, barMetric: string, lineMetric: string): string {
+  if (!dimension || !barMetric || !lineMetric || !rows.length) return "<p>No combo chart data.</p>";
+  const data = aggregateRowsByDimension(rows, dimension, barMetric, [lineMetric]).sort((a, b) => compareDimension(a[dimension], b[dimension])).slice(0, 24);
+  if (!data.length) return "<p>No combo chart data.</p>";
+  const box = svgBox();
+  const barBounds = chartBounds(data.map(row => numericValue(row[barMetric])));
+  const lineBounds = chartBounds(data.map(row => numericValue(row[lineMetric])));
+  const slot = (box.right - box.left) / Math.max(data.length, 1);
+  const barWidth = Math.max(6, Math.min(24, slot * 0.55));
+  const points = data.map((row, index) => {
+    const x = scaleIndex(index, data.length, box.left + slot / 2, box.right - slot / 2);
+    const y = scaleValue(numericValue(row[lineMetric]), lineBounds.min, lineBounds.max, box.bottom, box.top);
+    return { x, y, label: String(row[dimension] ?? ""), value: numericValue(row[lineMetric]) };
+  });
+  const polyline = points.map(point => `${point.x},${point.y}`).join(" ");
+  const labelStep = Math.max(1, Math.ceil(data.length / 6));
+  return `<svg class="native-svg" viewBox="0 0 ${box.width} ${box.height}" role="img" aria-label="${escapeHtml(barMetric)} and ${escapeHtml(lineMetric)} combo chart">
+    ${renderChartGrid(box)}
+    ${data.map((row, index) => {
+      const value = numericValue(row[barMetric]);
+      const x = scaleIndex(index, data.length, box.left + slot / 2, box.right - slot / 2) - barWidth / 2;
+      const y = scaleValue(value, barBounds.min, barBounds.max, box.bottom, box.top);
+      const h = Math.max(2, box.bottom - y);
+      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="3" fill="#1769aa"><title>${escapeHtml(String(row[dimension] ?? ""))}: ${escapeHtml(formatMetricValue(barMetric, value))}</title></rect>`;
+    }).join("")}
+    <polyline class="native-line secondary" points="${polyline}"></polyline>
+    ${points.map(point => `<circle class="native-point" cx="${point.x}" cy="${point.y}" r="4" style="stroke:#08875d"><title>${escapeHtml(point.label)}: ${escapeHtml(formatMetricValue(lineMetric, point.value))}</title></circle>`).join("")}
+    ${data.filter((_, index) => index % labelStep === 0 || index === data.length - 1).map((row, index) => {
+      const originalIndex = data.indexOf(row);
+      const x = scaleIndex(originalIndex, data.length, box.left + slot / 2, box.right - slot / 2);
+      return `<text class="native-label" x="${x}" y="${box.bottom + 22}" text-anchor="middle">${escapeHtml(shortLabel(String(row[dimension] ?? ""), 10))}</text>`;
+    }).join("")}
+    <text class="native-value" x="${box.left}" y="24">${escapeHtml(barMetric)}</text>
+    <text class="native-value" x="${box.right}" y="24" text-anchor="end">${escapeHtml(lineMetric)}</text>
+  </svg>
+  ${renderLegend([{ label: barMetric, value: "", color: "#1769aa" }, { label: lineMetric, value: "", color: "#08875d" }])}`;
+}
+
+function renderPieChart(rows: any[], dimension: string, metric: string): string {
+  return renderPieLikeChart(rows, dimension, metric, false);
+}
+
+function renderDonutChart(rows: any[], dimension: string, metric: string): string {
+  return renderPieLikeChart(rows, dimension, metric, true);
+}
+
+function renderPieLikeChart(rows: any[], dimension: string, metric: string, donut: boolean): string {
+  if (!dimension || !metric || !rows.length) return `<p>No ${donut ? "donut" : "pie"} chart data.</p>`;
+  const data = aggregateRowsByDimension(rows, dimension, metric)
+    .filter(row => numericValue(row[metric]) > 0)
+    .sort((a, b) => numericValue(b[metric]) - numericValue(a[metric]));
+  const slices = collapseSmallSlices(data, dimension, metric, 8);
+  const total = slices.reduce((sum, row) => sum + numericValue(row[metric]), 0);
+  if (!total) return `<p>No positive values for ${donut ? "donut" : "pie"} chart.</p>`;
+  const colors = chartPalette();
+  const cx = 160, cy = 150, radius = 96, innerRadius = donut ? 54 : 0;
+  let start = -90;
+  const paths = slices.map((row, index) => {
+    const value = numericValue(row[metric]);
+    const angle = (value / total) * 360;
+    const end = start + angle;
+    const path = donut
+      ? describeDonutSegment(cx, cy, radius, innerRadius, start, end)
+      : describePieSegment(cx, cy, radius, start, end);
+    const label = String(row[dimension] ?? "");
+    const color = colors[index % colors.length];
+    start = end;
+    return `<path d="${path}" fill="${color}" fill-rule="${donut ? "evenodd" : "nonzero"}" stroke="#fff" stroke-width="2"><title>${escapeHtml(label)}: ${escapeHtml(formatMetricValue(metric, value))} (${escapeHtml(formatPercent(value / total))})</title></path>`;
+  }).join("");
+  const center = donut ? `<text class="native-value" x="${cx}" y="${cy - 4}" text-anchor="middle">${escapeHtml(formatMetricValue(metric, total))}</text><text class="native-label" x="${cx}" y="${cy + 16}" text-anchor="middle">Total</text>` : "";
+  const legend = renderLegend(slices.map((row, index) => {
+    const value = numericValue(row[metric]);
+    return { label: String(row[dimension] ?? ""), value: formatPercent(value / total), color: colors[index % colors.length] };
+  }));
+  return `<svg class="native-svg" viewBox="0 0 320 300" role="img" aria-label="${escapeHtml(metric)} ${donut ? "donut" : "pie"} chart">
+    ${paths}
+    ${center}
+  </svg>${legend}`;
+}
+
+function renderScatterChart(rows: any[], xMetric: string, yMetric: string, labelDimension?: string): string {
+  if (!xMetric || !yMetric || !rows.length) return "<p>No scatter plot data.</p>";
+  const data = rows.filter(row => Number.isFinite(numericValue(row[xMetric])) && Number.isFinite(numericValue(row[yMetric]))).slice(0, 80);
+  if (!data.length) return "<p>No scatter plot data.</p>";
+  const box = svgBox();
+  const xBounds = chartBounds(data.map(row => numericValue(row[xMetric])));
+  const yBounds = chartBounds(data.map(row => numericValue(row[yMetric])));
+  const sizeMetric = numericColumns(data, unique(data.flatMap(row => Object.keys(row)))).find(column => ![xMetric, yMetric].includes(column));
+  const sizeBounds = sizeMetric ? chartBounds(data.map(row => numericValue(row[sizeMetric]))) : { min: 0, max: 1 };
+  return `<svg class="native-svg" viewBox="0 0 ${box.width} ${box.height}" role="img" aria-label="${escapeHtml(xMetric)} versus ${escapeHtml(yMetric)} scatter plot">
+    ${renderChartGrid(box)}
+    ${data.map(row => {
+      const x = scaleValue(numericValue(row[xMetric]), xBounds.min, xBounds.max, box.left, box.right);
+      const y = scaleValue(numericValue(row[yMetric]), yBounds.min, yBounds.max, box.bottom, box.top);
+      const r = sizeMetric ? 4 + 10 * normalizedRatio(numericValue(row[sizeMetric]), sizeBounds.min, sizeBounds.max) : 6;
+      const label = labelDimension ? String(row[labelDimension] ?? "") : "";
+      return `<circle cx="${x}" cy="${y}" r="${r}" fill="rgba(23,105,170,.55)" stroke="#1769aa"><title>${escapeHtml(label ? `${label}: ` : "")}${escapeHtml(xMetric)} ${escapeHtml(formatMetricValue(xMetric, numericValue(row[xMetric])))}; ${escapeHtml(yMetric)} ${escapeHtml(formatMetricValue(yMetric, numericValue(row[yMetric])))}</title></circle>`;
+    }).join("")}
+    <text class="native-label" x="${(box.left + box.right) / 2}" y="${box.height - 12}" text-anchor="middle">${escapeHtml(xMetric)}</text>
+    <text class="native-label" x="16" y="${(box.top + box.bottom) / 2}" transform="rotate(-90 16 ${(box.top + box.bottom) / 2})" text-anchor="middle">${escapeHtml(yMetric)}</text>
+  </svg>`;
+}
+
+function renderMapChart(rows: any[], columns: string[], metric: string, geoColumn?: string): string {
+  const latColumn = findLatitudeColumn(columns);
+  const lonColumn = findLongitudeColumn(columns);
+  if (latColumn && lonColumn && metric) {
+    return renderGeoBubbleMap(rows, latColumn, lonColumn, metric, geoColumn);
+  }
+  if (geoColumn && metric) {
+    const grouped = aggregateRowsByDimension(rows, geoColumn, metric).sort((a, b) => numericValue(b[metric]) - numericValue(a[metric])).slice(0, 10);
+    const max = Math.max(...grouped.map(row => numericValue(row[metric])), 1);
+    return `<div class="geo-cards">${grouped.map(row => {
+      const value = numericValue(row[metric]);
+      const width = Math.max(8, Math.round(value / max * 100));
+      return `<div class="geo-card" style="border-left-width:${Math.min(12, Math.max(5, Math.round(width / 10)))}px"><b>${escapeHtml(String(row[geoColumn] ?? ""))}</b><span>${escapeHtml(formatMetricValue(metric, value))}</span><div class="track" style="margin-top:8px"><div class="fill" style="width:${width}%"></div></div></div>`;
+    }).join("")}</div>`;
+  }
+  return "<p>No map data. Return latitude/longitude or a geography column such as Province, Region, City, or Country.</p>";
+}
+
+function renderGeoBubbleMap(rows: any[], latColumn: string, lonColumn: string, metric: string, labelColumn?: string): string {
+  const data = rows.filter(row => Number.isFinite(numericValue(row[latColumn])) && Number.isFinite(numericValue(row[lonColumn]))).slice(0, 120);
+  if (!data.length) return "<p>No latitude/longitude rows available for map.</p>";
+  const width = 720, height = 360, pad = 24;
+  const latBounds = chartBounds(data.map(row => numericValue(row[latColumn])));
+  const lonBounds = chartBounds(data.map(row => numericValue(row[lonColumn])));
+  const metricBounds = chartBounds(data.map(row => numericValue(row[metric])));
+  return `<svg class="native-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric)} geo bubble map">
+    <rect x="${pad}" y="${pad}" width="${width - pad * 2}" height="${height - pad * 2}" rx="10" fill="#eef3f8" stroke="#d7dde5"></rect>
+    ${[0.25, 0.5, 0.75].map(ratio => `<line class="native-grid-line" x1="${pad}" x2="${width - pad}" y1="${pad + (height - pad * 2) * ratio}" y2="${pad + (height - pad * 2) * ratio}"></line><line class="native-grid-line" y1="${pad}" y2="${height - pad}" x1="${pad + (width - pad * 2) * ratio}" x2="${pad + (width - pad * 2) * ratio}"></line>`).join("")}
+    ${data.map(row => {
+      const x = scaleValue(numericValue(row[lonColumn]), lonBounds.min, lonBounds.max, pad + 12, width - pad - 12);
+      const y = scaleValue(numericValue(row[latColumn]), latBounds.min, latBounds.max, height - pad - 12, pad + 12);
+      const value = numericValue(row[metric]);
+      const r = 5 + 16 * normalizedRatio(value, metricBounds.min, metricBounds.max);
+      const label = labelColumn ? String(row[labelColumn] ?? "") : "";
+      return `<circle cx="${x}" cy="${y}" r="${r}" fill="rgba(8,135,93,.5)" stroke="#08875d"><title>${escapeHtml(label ? `${label}: ` : "")}${escapeHtml(formatMetricValue(metric, value))}</title></circle>`;
+    }).join("")}
+    <text class="native-label" x="${pad}" y="${height - 8}">${escapeHtml(lonColumn)}</text>
+    <text class="native-label" x="${width - pad}" y="${height - 8}" text-anchor="end">${escapeHtml(latColumn)}</text>
+  </svg>`;
 }
 
 // ═══════════════════════════════════════════════════════

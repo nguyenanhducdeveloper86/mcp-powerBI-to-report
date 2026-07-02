@@ -498,6 +498,8 @@ Reports are generated as standalone HTML files with:
 - executive answer, driver tree, revenue bridge, decision levers, and run-rate read
 - executive insight layers: `WHAT`, `WHY`, `SO WHAT`, and `NOW WHAT`
 - contribution analysis across detected dimensions
+- native self-contained SVG chart formats selected from returned data shape:
+  line chart, combo bar+line chart, pie chart, donut chart, scatter plot, and map chart
 - cross-dimension pockets such as `Province x Model`, `Region x Model`, or any dimension pair returned by the query
 - risk/opportunity watch based on returned operational drivers such as margin, discount, inventory, marketing, and market share
 - multi-semantic dataset blocks that choose chart/layout from the returned data shape instead of a fixed template
