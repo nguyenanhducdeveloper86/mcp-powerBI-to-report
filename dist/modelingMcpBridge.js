@@ -81,7 +81,9 @@ export class ModelingMcpBridge {
         const args = process.env.POWERBI_MODELING_MCP_ARGS
             ? splitArgs(process.env.POWERBI_MODELING_MCP_ARGS)
             : ["-y", "@microsoft/powerbi-modeling-mcp@latest", "--start"];
+        const useWindowsShell = shouldUseWindowsShell(command);
         this.child = spawn(command, args, {
+            shell: useWindowsShell,
             stdio: ["pipe", "pipe", "pipe"]
         });
         this.child.on("exit", () => {
@@ -151,6 +153,12 @@ export class ModelingMcpBridge {
             }
         }
     }
+}
+function shouldUseWindowsShell(command) {
+    if (process.platform !== "win32")
+        return false;
+    const normalized = command.trim().toLowerCase();
+    return normalized === "npx" || normalized === "npx.cmd" || normalized.endsWith(".cmd");
 }
 function parseToolJson(response) {
     const content = response.result?.content ?? [];

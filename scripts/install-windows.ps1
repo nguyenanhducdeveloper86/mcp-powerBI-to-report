@@ -13,6 +13,64 @@ function Command-Exists($Name) {
   return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Assert-NodeAndNpmVersion {
+  $nodeVersionText = (& node -v).Trim()
+  if ($LASTEXITCODE -ne 0) { throw "node failed." }
+  $nodeMajor = [int](($nodeVersionText -replace '^v', '').Split('.')[0])
+  if ($nodeMajor -lt 18) {
+    throw "Node.js 18 or newer is required. Current: $nodeVersionText"
+  }
+
+  $npmVersionText = (& npm -v).Trim()
+  if ($LASTEXITCODE -ne 0) { throw "npm failed." }
+  $npmMajor = [int]($npmVersionText.Split('.')[0])
+  if ($npmMajor -lt 9) {
+    throw "npm 9 or newer is required. Current: $npmVersionText"
+  }
+}
+
+function Test-DirtyGitWorktree($Path) {
+  $status = git -C $Path status --porcelain
+  if ($LASTEXITCODE -ne 0) {
+    throw "git status failed in $Path"
+  }
+  return -not [string]::IsNullOrWhiteSpace(($status | Out-String))
+}
+
+function Resolve-LocalModelingCommand($RepoDir) {
+  $nativeBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
+  if (Test-Path $nativeBinary) {
+    return @{
+      Command = $nativeBinary
+      Args = "--start --authmode=interactive"
+      Source = "native-exe"
+    }
+  }
+
+  $localShim = Join-Path $RepoDir "node_modules\.bin\powerbi-modeling-mcp.cmd"
+  if (Test-Path $localShim) {
+    return @{
+      Command = $localShim
+      Args = "--start --authmode=interactive"
+      Source = "local-cmd-shim"
+    }
+  }
+
+  $npxCommand = Get-Command npx.cmd -ErrorAction SilentlyContinue
+  if (-not $npxCommand) {
+    $npxCommand = Get-Command npx -ErrorAction SilentlyContinue
+  }
+  if ($npxCommand) {
+    return @{
+      Command = $npxCommand.Source
+      Args = "-y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive"
+      Source = "npx-fallback"
+    }
+  }
+
+  throw "Cannot find a usable Modeling MCP command. Tried native .exe, local .cmd shim, and npx."
+}
+
 function Refresh-Path {
   $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
   $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
@@ -42,12 +100,22 @@ if (-not (Command-Exists git)) {
 if (-not (Command-Exists npm)) {
   throw "npm is not available. Install Node.js LTS or ask IT to install Node.js LTS, then re-run this command."
 }
+Assert-NodeAndNpmVersion
 
 if (!(Test-Path "$RepoDir\.git")) {
   git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $RepoDir
+  if ($LASTEXITCODE -ne 0) {
+    throw "git clone failed."
+  }
 } else {
+  if (Test-DirtyGitWorktree $RepoDir) {
+    throw "Existing repo has local changes. Use the explicit local repo command in README instead of this installer."
+  }
   Set-Location $RepoDir
   git pull
+  if ($LASTEXITCODE -ne 0) {
+    throw "git pull failed. Resolve local changes or use the explicit local repo command."
+  }
 }
 
 Set-Location $RepoDir
@@ -66,28 +134,56 @@ if ($Clean -or $CorporateNpm) {
   }
 }
 
-if ($CorporateNpm) {
-  $env:npm_config_strict_ssl = "false"
-  npm cache clean --force
+try {
+  if ($CorporateNpm) {
+    $env:npm_config_strict_ssl = "false"
+    npm cache clean --force
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm cache clean failed."
+    }
+  }
+
+  npm install --omit=dev --include=optional
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm install failed."
+  }
+
+  $nativeModelingBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
+  if (-not (Test-Path $nativeModelingBinary)) {
+    Write-Host "Microsoft Modeling MCP native Windows binary is missing. Trying explicit native package install..."
+    npm install --omit=dev --include=optional --no-save "@microsoft/powerbi-modeling-mcp-win32-x64@$ModelingMcpVersion"
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "Explicit native package install failed. Will try local .cmd shim or npx fallback."
+    }
+  }
+}
+finally {
+  if ($CorporateNpm) {
+    Remove-Item Env:npm_config_strict_ssl -ErrorAction SilentlyContinue
+  }
 }
 
-npm install --omit=dev --include=optional
+$resolvedModeling = Resolve-LocalModelingCommand $RepoDir
 
-$NativeModelingBinary = Join-Path $RepoDir "node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe"
-if (-not (Test-Path $NativeModelingBinary)) {
-  Write-Host "Microsoft Modeling MCP Windows binary is missing. Installing native package explicitly..."
-  npm install --omit=dev --include=optional --no-save "@microsoft/powerbi-modeling-mcp-win32-x64@$ModelingMcpVersion"
-}
-
-if (-not (Test-Path $NativeModelingBinary)) {
-  throw "Microsoft Modeling MCP Windows binary is still missing: $NativeModelingBinary. The corporate gateway may be blocking @microsoft/powerbi-modeling-mcp-win32-x64@$ModelingMcpVersion."
-}
-
-& powershell -ExecutionPolicy Bypass -File .\scripts\setup-claude-desktop.ps1 -Workspace $Workspace -SkipInstall
+& powershell -ExecutionPolicy Bypass -File .\scripts\setup-claude-desktop.ps1 `
+  -Workspace $Workspace `
+  -ModelingCommand $resolvedModeling.Command `
+  -ModelingArgs $resolvedModeling.Args `
+  -SkipInstall
 if ($LASTEXITCODE -ne 0) {
   throw "Claude Desktop MCP setup failed with exit code $LASTEXITCODE."
 }
 
+$envPath = Join-Path $RepoDir ".env"
+$serverJs = Join-Path $RepoDir "dist\server.js"
+if (-not (Test-Path $serverJs)) {
+  throw "Missing prebuilt server after install: $serverJs"
+}
+if (-not (Test-Path $envPath)) {
+  throw "Missing .env after setup: $envPath"
+}
+
 Write-Host ""
-Write-Host "Done. Restart Claude Desktop completely, then ask Claude:"
+Write-Host "Done. Modeling command source: $($resolvedModeling.Source)"
+Write-Host "Restart Claude Desktop completely, then ask Claude:"
 Write-Host "Use mcp-powerBI-to-report to diagnose the local Power BI MCP setup."

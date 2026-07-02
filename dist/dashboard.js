@@ -929,13 +929,36 @@ function renderDatasetChart(rows, profile) {
         return "<p>No rows returned from this semantic model.</p>";
     if (!metric)
         return renderEvidenceTable(rows, profile.columns, 8);
-    if (profile.shape === "time_series" && dimension)
+    if (profile.shape === "time_series" && dimension) {
+        const secondaryDimension = chooseSecondaryCategoricalDimension(rows, profile.categoricalDimensions ?? [], dimension);
+        if (secondaryDimension && shouldUseStackedComposition(rows, dimension, secondaryDimension, metric)) {
+            return renderStackedCompositionChart(rows, dimension, secondaryDimension, metric);
+        }
         return renderLineChart(rows, dimension, metric);
-    if ((profile.shape === "categorical_ranking" || profile.shape === "cross_dimension") && dimension) {
-        return renderDonutChart(rows, dimension, metric);
+    }
+    if (profile.shape === "cross_dimension") {
+        const heatmapDimensions = chooseHeatmapDimensions(rows, profile.categoricalDimensions ?? []);
+        if (heatmapDimensions) {
+            return renderHeatmapChart(rows, heatmapDimensions[0], heatmapDimensions[1], metric);
+        }
+    }
+    if (profile.shape === "categorical_ranking" && dimension) {
+        return renderGovernedCategoryChart(rows, dimension, metric, true);
+    }
+    if (profile.shape === "multi_metric" && profile.metrics.length >= 2 && shouldUseScatterChart(rows, profile.metrics[0], profile.metrics[1])) {
+        return renderScatterChart(rows, profile.metrics[0], profile.metrics[1], dimension);
+    }
+    if (profile.shape === "cross_dimension" && dimension) {
+        return renderGovernedCategoryChart(rows, dimension, metric, false);
+    }
+    if (profile.shape === "multi_metric" && profile.metrics.length >= 2) {
+        const comparisonDimension = dimension ?? findBestCategoricalColumn(rows, profile.columns ?? [], []);
+        if (comparisonDimension && uniqueNonEmptyValues(rows, comparisonDimension).length <= 12) {
+            return renderComboChart(rows, comparisonDimension, metric, profile.metrics.find((candidate) => candidate !== metric) ?? metric);
+        }
     }
     if (profile.shape === "multi_metric" && profile.metrics.length >= 2)
-        return renderScatterChart(rows, profile.metrics[0], profile.metrics[1], dimension);
+        return renderMetricScorecard(rows, profile.metrics);
     if (profile.shape === "multi_metric" || profile.shape === "single_metric")
         return renderMetricScorecard(rows, profile.metrics);
     return renderEvidenceTable(rows, profile.columns, 8);
@@ -1047,6 +1070,154 @@ function aggregateRowsByDimension(rows, dimension, metric, extraMetrics = []) {
 }
 function numericColumns(rows, columns) {
     return columns.filter(column => rows.some(row => typeof row[column] === "number" && Number.isFinite(row[column])));
+}
+function uniqueNonEmptyValues(rows, column) {
+    return unique(rows.map(row => String(row[column] ?? "").trim()).filter(Boolean));
+}
+function chooseSecondaryCategoricalDimension(rows, columns, primary, excluded = []) {
+    const blocked = new Set([primary, ...excluded].filter(Boolean));
+    return columns.find(column => {
+        if (blocked.has(column))
+            return false;
+        const values = uniqueNonEmptyValues(rows, column);
+        return values.length >= 2 && values.length <= 8 && !isMonthLikeColumn(column, rows) && !rows.some(row => typeof row[column] === "number");
+    });
+}
+function chooseHeatmapDimensions(rows, columns) {
+    const candidates = columns.filter(column => {
+        const values = uniqueNonEmptyValues(rows, column);
+        return values.length >= 2 && values.length <= 10 && !isMonthLikeColumn(column, rows) && !rows.some(row => typeof row[column] === "number");
+    });
+    if (candidates.length < 2)
+        return undefined;
+    const sorted = [...candidates].sort((a, b) => uniqueNonEmptyValues(rows, a).length - uniqueNonEmptyValues(rows, b).length);
+    return [sorted[0], sorted[1]];
+}
+function hasSufficientTimeSeries(rows, dimension, metric) {
+    const grouped = aggregateRowsByDimension(rows, dimension, metric);
+    return grouped.length >= 3;
+}
+function shouldUseCircularChart(rows, dimension, metric) {
+    const grouped = aggregateRowsByDimension(rows, dimension, metric).filter(row => numericValue(row[metric]) > 0);
+    const categoryCount = grouped.length;
+    if (categoryCount < 2 || categoryCount > 6)
+        return false;
+    const total = grouped.reduce((sum, row) => sum + numericValue(row[metric]), 0);
+    const largestShare = total ? Math.max(...grouped.map(row => numericValue(row[metric]) / total)) : 0;
+    return largestShare < 0.85;
+}
+function shouldUseScatterChart(rows, xMetric, yMetric) {
+    const points = rows.filter(row => Number.isFinite(numericValue(row[xMetric])) && Number.isFinite(numericValue(row[yMetric])));
+    if (points.length < 8)
+        return false;
+    const xBounds = chartBounds(points.map(row => numericValue(row[xMetric])));
+    const yBounds = chartBounds(points.map(row => numericValue(row[yMetric])));
+    return xBounds.max > xBounds.min && yBounds.max > yBounds.min;
+}
+function shouldUseComboChart(rows, dimension, barMetric, lineMetric) {
+    const grouped = aggregateRowsByDimension(rows, dimension, barMetric, [lineMetric]);
+    return grouped.length >= 3 && grouped.length <= 18;
+}
+function shouldUseStackedComposition(rows, timeDimension, categoryDimension, metric) {
+    const periods = uniqueNonEmptyValues(rows, timeDimension);
+    const categories = uniqueNonEmptyValues(rows, categoryDimension);
+    return periods.length >= 3 && periods.length <= 12 && categories.length >= 2 && categories.length <= 6 && rows.some(row => numericValue(row[metric]) > 0);
+}
+function shouldUseMapChart(rows, columns, geoColumn) {
+    if (findLatitudeColumn(columns) && findLongitudeColumn(columns))
+        return true;
+    if (!geoColumn)
+        return false;
+    const cardinality = uniqueNonEmptyValues(rows, geoColumn).length;
+    return cardinality >= 2 && cardinality <= 30;
+}
+function renderGovernedCategoryChart(rows, dimension, metric, allowCircular) {
+    if (!dimension || !metric || !rows.length)
+        return "<p>No category chart data.</p>";
+    if (allowCircular && shouldUseCircularChart(rows, dimension, metric)) {
+        return renderDonutChart(rows, dimension, metric);
+    }
+    return renderRankedBars(aggregateRowsByDimension(rows, dimension, metric), dimension, metric, 10);
+}
+function aggregateRowsByTwoDimensions(rows, firstDimension, secondDimension, metric) {
+    const groups = new Map();
+    for (const row of rows) {
+        const first = String(row[firstDimension] ?? "").trim();
+        const second = String(row[secondDimension] ?? "").trim();
+        if (!first || !second)
+            continue;
+        const key = `${first}\u0000${second}`;
+        groups.set(key, (groups.get(key) ?? 0) + numericValue(row[metric]));
+    }
+    return [...groups.entries()].map(([key, value]) => {
+        const [first, second] = key.split("\u0000");
+        return { [firstDimension]: first, [secondDimension]: second, [metric]: value };
+    });
+}
+function renderHeatmapChart(rows, firstDimension, secondDimension, metric) {
+    const aggregated = aggregateRowsByTwoDimensions(rows, firstDimension, secondDimension, metric);
+    if (!aggregated.length)
+        return "<p>No heatmap data.</p>";
+    const columns = uniqueNonEmptyValues(aggregated, secondDimension).slice(0, 6);
+    const rowLabels = uniqueNonEmptyValues(aggregated, firstDimension).slice(0, 8);
+    const filtered = aggregated.filter(row => rowLabels.includes(String(row[firstDimension])) && columns.includes(String(row[secondDimension])));
+    const maxValue = Math.max(...filtered.map(row => numericValue(row[metric])), 1);
+    const width = 720;
+    const left = 120;
+    const top = 36;
+    const cellWidth = Math.max(70, Math.floor((width - left - 20) / Math.max(columns.length, 1)));
+    const cellHeight = 34;
+    const height = top + rowLabels.length * cellHeight + 40;
+    return `<svg class="native-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric)} heatmap">
+    ${columns.map((column, index) => `<text class="native-label" x="${left + index * cellWidth + cellWidth / 2}" y="20" text-anchor="middle">${escapeHtml(shortLabel(column, 10))}</text>`).join("")}
+    ${rowLabels.map((label, rowIndex) => `<text class="native-label" x="${left - 8}" y="${top + rowIndex * cellHeight + 22}" text-anchor="end">${escapeHtml(shortLabel(label, 16))}</text>`).join("")}
+    ${rowLabels.map((rowLabel, rowIndex) => columns.map((columnLabel, columnIndex) => {
+        const cell = filtered.find(row => String(row[firstDimension]) === rowLabel && String(row[secondDimension]) === columnLabel);
+        const value = cell ? numericValue(cell[metric]) : 0;
+        const ratio = maxValue ? value / maxValue : 0;
+        const color = ratio === 0 ? "#f4f7fa" : `rgba(23, 105, 170, ${0.12 + ratio * 0.7})`;
+        const x = left + columnIndex * cellWidth;
+        const y = top + rowIndex * cellHeight;
+        return `<g><rect x="${x}" y="${y}" width="${cellWidth - 4}" height="${cellHeight - 4}" rx="6" fill="${color}" stroke="#d7dde5"></rect><text class="native-value" x="${x + (cellWidth - 4) / 2}" y="${y + 22}" text-anchor="middle">${escapeHtml(shortNumber(metric, value))}</text><title>${escapeHtml(rowLabel)} / ${escapeHtml(columnLabel)}: ${escapeHtml(formatMetricValue(metric, value))}</title></g>`;
+    }).join("")).join("")}
+  </svg>`;
+}
+function renderStackedCompositionChart(rows, timeDimension, categoryDimension, metric) {
+    const aggregated = aggregateRowsByTwoDimensions(rows, timeDimension, categoryDimension, metric);
+    if (!aggregated.length)
+        return "<p>No stacked composition data.</p>";
+    const periods = uniqueNonEmptyValues(aggregated, timeDimension).sort(compareDimension).slice(0, 12);
+    const categories = uniqueNonEmptyValues(aggregated, categoryDimension).slice(0, 6);
+    const colors = chartPalette();
+    const width = 720;
+    const height = 320;
+    const left = 58;
+    const right = 688;
+    const top = 24;
+    const bottom = 250;
+    const barSlot = (right - left) / Math.max(periods.length, 1);
+    const barWidth = Math.max(24, Math.min(42, barSlot * 0.6));
+    const totalsByPeriod = periods.map(period => aggregated.filter(row => String(row[timeDimension]) === period).reduce((sum, row) => sum + numericValue(row[metric]), 0));
+    const maxTotal = Math.max(...totalsByPeriod, 1);
+    return `<svg class="native-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metric)} stacked composition chart">
+    <line class="native-axis" x1="${left}" x2="${right}" y1="${bottom}" y2="${bottom}"></line>
+    <line class="native-axis" x1="${left}" x2="${left}" y1="${top}" y2="${bottom}"></line>
+    ${periods.map((period, periodIndex) => {
+        const total = totalsByPeriod[periodIndex];
+        const x = left + periodIndex * barSlot + (barSlot - barWidth) / 2;
+        let stackedTop = bottom;
+        const segments = categories.map((category, categoryIndex) => {
+            const cell = aggregated.find(row => String(row[timeDimension]) === period && String(row[categoryDimension]) === category);
+            const value = cell ? numericValue(cell[metric]) : 0;
+            const heightRatio = total ? value / maxTotal : 0;
+            const segmentHeight = Math.max(value > 0 ? 4 : 0, heightRatio * (bottom - top));
+            stackedTop -= segmentHeight;
+            return `<rect x="${x}" y="${stackedTop}" width="${barWidth}" height="${segmentHeight}" fill="${colors[categoryIndex % colors.length]}"><title>${escapeHtml(period)} / ${escapeHtml(category)}: ${escapeHtml(formatMetricValue(metric, value))}</title></rect>`;
+        }).join("");
+        return `${segments}<text class="native-label" x="${x + barWidth / 2}" y="${bottom + 18}" text-anchor="middle">${escapeHtml(shortLabel(period, 10))}</text>`;
+    }).join("")}
+    ${renderYAxisLabels({ min: 0, max: maxTotal }, { left, right, top, bottom }, metric)}
+  </svg>${renderLegend(categories.map((category, index) => ({ label: category, value: "", color: colors[index % colors.length] })))}`;
 }
 function findBestCategoricalColumn(rows, columns, excluded = []) {
     const excludedSet = new Set(excluded.filter(Boolean));
@@ -1268,10 +1439,10 @@ function renderDashboardHtml(input) {
                 break;
             case "distribution":
                 modeSection = renderDistributionSection(input);
-                chartHtml = renderDonutChart(input.rows, dim, metric);
+                chartHtml = renderGovernedCategoryChart(input.rows, dim, metric, true);
                 break;
             default:
-                chartHtml = renderGenericBars(input.rows, dim, metric);
+                chartHtml = renderGovernedCategoryChart(input.rows, dim, metric, false);
         }
     }
     const chartTitle = getChartTitle(intent, input.analysis);
@@ -1832,30 +2003,45 @@ function renderNativeChartGallery(input) {
     const secondMetric = metrics.find(column => column !== metric);
     const timeDimension = findMonthColumn(rows, columns);
     const categoricalDimension = findBestCategoricalColumn(rows, columns, [timeDimension]);
+    const secondaryCategoricalDimension = categoricalDimension
+        ? chooseSecondaryCategoricalDimension(rows, columns.filter(column => !numericColumns(rows, columns).includes(column)), categoricalDimension, [timeDimension])
+        : undefined;
     const axisDimension = timeDimension ?? categoricalDimension ?? input.intent?.primaryDimension;
     const geoColumn = findGeoColumn(rows, columns);
     const charts = [];
-    if (timeDimension && metric) {
-        charts.push(renderNativeCard("Line chart", `Actual time-series line for ${metric} over ${timeDimension}.`, renderLineChart(rows, timeDimension, metric)));
+    if (timeDimension && metric && secondaryCategoricalDimension && shouldUseStackedComposition(rows, timeDimension, secondaryCategoricalDimension, metric)) {
+        charts.push(renderNativeCard("Stacked composition", `Use stacked bars when the question is time plus one small category mix: ${metric} by ${timeDimension} and ${secondaryCategoricalDimension}.`, renderStackedCompositionChart(rows, timeDimension, secondaryCategoricalDimension, metric)));
     }
-    if (axisDimension && metric && secondMetric) {
-        charts.push(renderNativeCard("Combo chart", `Bars show ${metric}; line shows ${secondMetric}.`, renderComboChart(rows, axisDimension, metric, secondMetric)));
+    else if (timeDimension && metric && hasSufficientTimeSeries(rows, timeDimension, metric)) {
+        charts.push(renderNativeCard("Line chart", `Use line charts for ordered time series: ${metric} over ${timeDimension}.`, renderLineChart(rows, timeDimension, metric)));
     }
-    if (categoricalDimension && metric) {
-        charts.push(renderNativeCard("Pie chart", `Share of ${metric} by ${categoricalDimension}.`, renderPieChart(rows, categoricalDimension, metric)));
-        charts.push(renderNativeCard("Donut chart", `Contribution mix for ${metric} by ${categoricalDimension}.`, renderDonutChart(rows, categoricalDimension, metric)));
+    if (axisDimension && metric && secondMetric && shouldUseComboChart(rows, axisDimension, metric, secondMetric)) {
+        charts.push(renderNativeCard("Combo chart", `Use combo charts when one business axis needs two measures: bars for ${metric}, line for ${secondMetric}.`, renderComboChart(rows, axisDimension, metric, secondMetric)));
     }
-    if (metrics.length >= 2) {
-        charts.push(renderNativeCard("Scatter plot", `${metrics[0]} versus ${metrics[1]}${categoricalDimension ? `, labelled by ${categoricalDimension}` : ""}.`, renderScatterChart(rows, metrics[0], metrics[1], categoricalDimension)));
+    if (categoricalDimension && metric && shouldUseCircularChart(rows, categoricalDimension, metric)) {
+        charts.push(renderNativeCard("Donut chart", `Use donut only for small part-to-whole mixes: ${metric} by ${categoricalDimension}.`, renderDonutChart(rows, categoricalDimension, metric)));
+        if (uniqueNonEmptyValues(rows, categoricalDimension).length <= 4) {
+            charts.push(renderNativeCard("Pie chart", `Pie is limited to very small mixes where label load stays low.`, renderPieChart(rows, categoricalDimension, metric)));
+        }
     }
-    if (geoColumn || findLatitudeColumn(columns) || findLongitudeColumn(columns)) {
-        charts.push(renderNativeCard("Map chart", geoColumn ? `Geo contribution by ${geoColumn}.` : "Latitude/longitude bubble map.", renderMapChart(rows, columns, metric, geoColumn)));
+    else if (categoricalDimension && metric) {
+        charts.push(renderNativeCard("Ranked bar", `Use ranked bars when category count is too high for circular charts: ${metric} by ${categoricalDimension}.`, renderRankedBars(aggregateRowsByDimension(rows, categoricalDimension, metric), categoricalDimension, metric, 10)));
+    }
+    const heatmapDimensions = chooseHeatmapDimensions(rows, columns.filter(column => !metrics.includes(column)));
+    if (metric && heatmapDimensions) {
+        charts.push(renderNativeCard("Heatmap", `Use heatmaps for cross-dimension pockets instead of donut charts: ${metric} by ${heatmapDimensions[0]} x ${heatmapDimensions[1]}.`, renderHeatmapChart(rows, heatmapDimensions[0], heatmapDimensions[1], metric)));
+    }
+    if (metrics.length >= 2 && shouldUseScatterChart(rows, metrics[0], metrics[1])) {
+        charts.push(renderNativeCard("Scatter plot", `Use scatter only when two numeric measures have enough observations to inspect correlation.`, renderScatterChart(rows, metrics[0], metrics[1], categoricalDimension)));
+    }
+    if (metric && (geoColumn || findLatitudeColumn(columns) || findLongitudeColumn(columns)) && shouldUseMapChart(rows, columns, geoColumn)) {
+        charts.push(renderNativeCard("Map chart", geoColumn ? `Use map only for true geography questions: ${metric} by ${geoColumn}.` : "Latitude/longitude bubble map.", renderMapChart(rows, columns, metric, geoColumn)));
     }
     if (!charts.length)
         return "";
     return `<section class="panel">
-    <h2>Native chart formats</h2>
-    <p class="analysis-note">SVG visuals are rendered directly in the HTML report, so the file stays self-contained and works offline in Claude Desktop.</p>
+    <h2>Power BI chart standards</h2>
+    <p class="analysis-note">Charts below follow report governance rules instead of shape-only rendering. SVG visuals stay self-contained so the HTML report still works offline in Claude Desktop.</p>
     <div class="native-grid">${charts.join("")}</div>
   </section>`;
 }

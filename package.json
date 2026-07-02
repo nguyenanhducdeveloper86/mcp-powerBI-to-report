@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/server.ts",
-    "setup": "tsx src/setup.ts",
+    "setup": "node dist/setup.js",
     "setup:claude-desktop": "bash scripts/setup-claude-desktop.sh",
     "setup:claude-desktop:powershell": "powershell -ExecutionPolicy Bypass -File scripts/setup-claude-desktop.ps1",
     "start": "node dist/server.js",

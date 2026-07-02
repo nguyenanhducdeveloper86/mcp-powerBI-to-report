@@ -56,10 +56,13 @@ function defaultModelingMcpCommand() {
     const nativeBinary = nativeModelingMcpBinaryPath();
     if (nativeBinary && existsSync(nativeBinary))
         return nativeBinary;
+    const localShim = localModelingMcpShimPath();
+    if (localShim && existsSync(localShim))
+        return localShim;
     return "npx";
 }
 function defaultModelingMcpArgs(command) {
-    if (command === "npx") {
+    if (command === "npx" || command.toLowerCase().endsWith("npx.cmd")) {
         return "-y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive";
     }
     return "--start --authmode=interactive";
@@ -77,6 +80,11 @@ function nativeModelingMcpBinaryPath() {
         return resolve(projectRoot(), "node_modules/@microsoft/powerbi-modeling-mcp-win32-x64/dist/powerbi-modeling-mcp.exe");
     }
     return undefined;
+}
+function localModelingMcpShimPath() {
+    if (process.platform !== "win32")
+        return undefined;
+    return resolve(projectRoot(), "node_modules/.bin/powerbi-modeling-mcp.cmd");
 }
 main().catch(error => {
     console.error(error instanceof Error ? error.message : error);

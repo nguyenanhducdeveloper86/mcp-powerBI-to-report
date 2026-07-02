@@ -18,7 +18,20 @@ This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com
 
 Use these commands for a one-time setup on a new device.
 
-The setup installs production npm dependencies, uses the prebuilt `dist/server.js`, selects the local Microsoft Power BI Modeling MCP binary for the OS, writes `.env`, updates Claude Desktop `mcpServers`, and configures:
+The setup installs production npm dependencies, uses the prebuilt `dist/server.js`, writes `.env`, updates Claude Desktop `mcpServers`, and configures the Microsoft Modeling MCP command in this Windows order:
+
+```text
+native .exe -> local node_modules\.bin\powerbi-modeling-mcp.cmd -> npx fallback
+```
+
+It also enforces:
+
+```text
+Node.js >= 18
+npm >= 9
+```
+
+and configures:
 
 ```text
 POWERBI_MODELING_MCP_ARGS=--start --authmode=interactive
@@ -41,7 +54,7 @@ if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://ra
 ### Windows PowerShell - company device with portable Node 22
 
 ```powershell
-$ErrorActionPreference="Stop"; $dir="$HOME\mcp-powerBI-to-report"; $nodeDir=Join-Path $env:TEMP "node-v22.12.0-win-x64"; if (-not (Test-Path "$nodeDir\node.exe")) { throw "Node.js not found: $nodeDir" }; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir; if ($LASTEXITCODE -ne 0) { throw "git clone failed" } } else { Set-Location $dir; git pull; if ($LASTEXITCODE -ne 0) { throw "git pull failed. Resolve local changes before continuing." } }; Set-Location $dir; $env:Path="$nodeDir;$env:Path"; node -v; if ($LASTEXITCODE -ne 0) { throw "node failed" }; npm.cmd -v; if ($LASTEXITCODE -ne 0) { throw "npm failed" }; npm.cmd install --omit=dev --include=optional; if ($LASTEXITCODE -ne 0) { throw "npm install failed" }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\setup-claude-desktop.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall; if ($LASTEXITCODE -ne 0) { throw "Claude Desktop setup failed" }
+$ErrorActionPreference="Stop"; $dir="$HOME\mcp-powerBI-to-report"; $nodeDir=Join-Path $env:TEMP "node-v22.12.0-win-x64"; if (-not (Test-Path "$nodeDir\node.exe")) { throw "Node.js not found: $nodeDir" }; $env:Path="$nodeDir;$env:Path"; node -v; if ($LASTEXITCODE -ne 0) { throw "node failed" }; npm.cmd -v; if ($LASTEXITCODE -ne 0) { throw "npm failed" }; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir; if ($LASTEXITCODE -ne 0) { throw "git clone failed" } }; Set-Location $dir; npm.cmd install --omit=dev --include=optional; if ($LASTEXITCODE -ne 0) { throw "npm install failed" }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\setup-claude-desktop.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall; if ($LASTEXITCODE -ne 0) { throw "Claude Desktop setup failed" }
 ```
 
 Use this verified flow when the machine has a portable Node.js 22 folder extracted at `%TEMP%\node-v22.12.0-win-x64`. It forces PowerShell to use that Node/npm for this installer session, then runs the local setup script with `-SkipInstall` after `npm install` succeeds.
@@ -59,18 +72,31 @@ Close Claude Desktop completely before running setup. Use Quit from the system t
 ### Windows PowerShell - installer script for company devices
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
 ```
 
-This command does not download scripts from `raw.githubusercontent.com`; it uses `git clone` / `git pull`, then runs the installer from the local repo. Use it when the active `node` and `npm` on PATH are already Node.js 18+/npm 9+.
+This command does not download scripts from `raw.githubusercontent.com`; it clones the repo when needed, then runs the installer from the local repo. The installer itself handles repo update and dirty-worktree checks. Use it when the active `node` and `npm` on PATH are already Node.js 18+/npm 9+.
+
+`-CorporateNpm` is a temporary compatibility mode for approved test environments. It only sets `npm_config_strict_ssl=false` inside the installer process, cleans npm cache, then removes that override in `finally`. It does not bypass gateway blocks such as `403 MediaTypeBlocked`. The preferred enterprise path is still:
+
+- internal npm registry
+- trusted Root CA via `npm cafile` / `NODE_EXTRA_CA_CERTS`
+- gateway whitelist
+- approved offline provisioning of the Microsoft binary
 
 ### Windows PowerShell - standard network
 
 Use this when npm and GitHub downloads are not blocked by corporate SSL/media policy.
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE"
+$dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE"
 ```
+
+This path fails fast if:
+
+- `node` is older than 18
+- `npm` is older than 9
+- the local repo already has uncommitted changes
 
 ### Windows PowerShell - raw GitHub download
 
@@ -82,10 +108,16 @@ iwr -UseBasicParsing "https://raw.githubusercontent.com/nguyenanhducdeveloper86/
 
 ### Windows PowerShell - explicit local repo command
 
-Use this if the repo is already cloned and Git/Node are already installed.
+Use this if the repo is already cloned, the working tree is dirty, or you want to control the active Node path explicitly.
 
 ```powershell
-$dir="$HOME\mcp-powerBI-to-report"; cd $dir; git pull; npm install --omit=dev --include=optional; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall
+$ErrorActionPreference="Stop"; $dir="$HOME\mcp-powerBI-to-report"; Set-Location $dir; node -v; if ($LASTEXITCODE -ne 0) { throw "node failed" }; npm.cmd -v; if ($LASTEXITCODE -ne 0) { throw "npm failed" }; npm.cmd install --omit=dev --include=optional; if ($LASTEXITCODE -ne 0) { throw "npm install failed" }; powershell -ExecutionPolicy Bypass -File scripts\setup-claude-desktop.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall; if ($LASTEXITCODE -ne 0) { throw "Claude Desktop setup failed" }
+```
+
+If the machine keeps selecting an older system Node.js, pin the portable Node directory first:
+
+```powershell
+$nodeDir=Join-Path $env:TEMP "node-v22.12.0-win-x64"; $env:Path="$nodeDir;$env:Path"
 ```
 
 If company policy blocks Homebrew, `winget`, or app installation, ask IT to install:
@@ -124,10 +156,12 @@ npm run setup
 
 On macOS, `npm install --omit=dev --include=optional` also ad-hoc signs the Microsoft native Modeling MCP binary so Claude can launch it without the unsigned-binary failure.
 
-On Windows, point `POWERBI_MODELING_MCP_COMMAND` to the native Microsoft Modeling MCP executable instead of `npx`:
+On Windows, `npm run setup` and the PowerShell installer resolve the Modeling MCP command in this order:
 
 ```text
 node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe
+node_modules\.bin\powerbi-modeling-mcp.cmd
+npx
 ```
 
 `npm run setup` asks for:
@@ -144,7 +178,7 @@ It writes a local `.env` file with mode `0600`. The MCP server loads this file a
 
 ### One-line setup
 
-The fastest path is the bundled Claude Desktop setup script. It detects macOS vs Windows shells, installs dependencies, builds `dist/server.js`, selects the native Microsoft Power BI Modeling MCP binary for the current device, writes `.env`, backs up Claude Desktop config, and merges the MCP server into `mcpServers`.
+The fastest path is the bundled Claude Desktop setup script. It detects macOS vs Windows shells, installs dependencies, uses the prebuilt `dist/server.js`, writes `.env`, backs up Claude Desktop config, and merges the MCP server into `mcpServers`. On Windows it prefers the native Microsoft Modeling MCP `.exe`, then the local `.cmd` shim, then `npx`.
 
 From an existing clone:
 
@@ -166,10 +200,22 @@ Or one command that clones to `~/mcp-powerBI-to-report` when needed:
 curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace test-mcp
 ```
 
-Windows should run the same command from Git Bash. The script writes Windows-native paths into Claude Desktop config and points `POWERBI_MODELING_MCP_COMMAND` directly to:
+Windows should run the same command from Git Bash. The script writes Windows-native paths into Claude Desktop config and prefers:
 
 ```text
 node_modules\@microsoft\powerbi-modeling-mcp-win32-x64\dist\powerbi-modeling-mcp.exe
+```
+
+If that binary is missing, it uses:
+
+```text
+node_modules\.bin\powerbi-modeling-mcp.cmd
+```
+
+If both local commands are missing, it falls back to:
+
+```text
+npx -y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive
 ```
 
 PowerShell users should use the native PowerShell setup script, not `curl -fsSL`:
@@ -290,7 +336,7 @@ macOS example — Intel (x64):
 
 > **macOS note:** `npm install --omit=dev --include=optional` automatically ad-hoc signs the Microsoft native binary. If Claude Desktop shows an error launching the binary, run that command again from the project directory, then restart Claude Desktop.
 
-Windows example:
+Windows example with native `.exe`:
 
 ```json
 {
@@ -311,7 +357,49 @@ Windows example:
 }
 ```
 
-> **Windows note:** Do not use `npx` as `POWERBI_MODELING_MCP_COMMAND`. Always point directly to the `.exe` binary path above.
+Windows example with local `.cmd` shim:
+
+```json
+{
+  "mcpServers": {
+    "mcp-powerBI-to-report": {
+      "command": "node",
+      "args": ["C:\\Users\\<you>\\mcp-powerBI-to-report\\dist\\server.js"],
+      "env": {
+        "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
+        "POWERBI_DEFAULT_WORKSPACE": "your-workspace-name",
+        "POWERBI_DEFAULT_SEMANTIC_MODEL": "your-model-name",
+        "POWERBI_MODELING_MCP_COMMAND": "C:\\Users\\<you>\\mcp-powerBI-to-report\\node_modules\\.bin\\powerbi-modeling-mcp.cmd",
+        "POWERBI_MODELING_MCP_ARGS": "--start --authmode=interactive",
+        "POWERBI_REPORT_OUTPUT_DIR": "C:\\Users\\<you>\\powerbi-report-output"
+      }
+    }
+  }
+}
+```
+
+Windows example with `npx` fallback:
+
+```json
+{
+  "mcpServers": {
+    "mcp-powerBI-to-report": {
+      "command": "node",
+      "args": ["C:\\Users\\<you>\\mcp-powerBI-to-report\\dist\\server.js"],
+      "env": {
+        "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
+        "POWERBI_DEFAULT_WORKSPACE": "your-workspace-name",
+        "POWERBI_DEFAULT_SEMANTIC_MODEL": "your-model-name",
+        "POWERBI_MODELING_MCP_COMMAND": "C:\\Program Files\\nodejs\\npx.cmd",
+        "POWERBI_MODELING_MCP_ARGS": "-y @microsoft/powerbi-modeling-mcp@latest --start --authmode=interactive",
+        "POWERBI_REPORT_OUTPUT_DIR": "C:\\Users\\<you>\\powerbi-report-output"
+      }
+    }
+  }
+}
+```
+
+> **Windows note:** the bridge launches `.cmd` commands and `npx` through the Windows shell. Without that behavior, Node can fail with `spawn npx ENOENT` on Windows.
 
 A ready-to-edit example file is at [`docs/claude-desktop-config.example.json`](docs/claude-desktop-config.example.json).
 
@@ -521,6 +609,8 @@ Reports are generated as standalone HTML files with:
 - cross-dimension pockets such as `Province x Model`, `Region x Model`, or any dimension pair returned by the query
 - risk/opportunity watch based on returned operational drivers such as margin, discount, inventory, marketing, and market share
 - multi-semantic dataset blocks that choose chart/layout from the returned data shape instead of a fixed template
+- chart governance rules closer to Power BI reporting practice:
+  line for time series, ranked bar for larger category sets, donut only for small part-to-whole mixes, heatmap for cross-dimension pockets, scatter only for sufficient numeric observations, and map only for true geography fields
 - next-best business questions for CEO drill-down
 - question, workspace, semantic model, and DAX query context
 
