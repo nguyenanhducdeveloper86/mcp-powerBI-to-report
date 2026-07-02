@@ -123,6 +123,28 @@ require_command() {
   fi
 }
 
+command_source() {
+  command -v "$1"
+}
+
+assert_node_and_npm_version() {
+  local node_version node_major npm_version npm_major
+  node_version="$(node -v)"
+  node_major="${node_version#v}"
+  node_major="${node_major%%.*}"
+  if [[ "$node_major" -lt 18 ]]; then
+    echo "Node.js 18 or newer is required. Current: $node_version" >&2
+    exit 1
+  fi
+
+  npm_version="$(npm -v)"
+  npm_major="${npm_version%%.*}"
+  if [[ "$npm_major" -lt 9 ]]; then
+    echo "npm 9 or newer is required. Current: $npm_version" >&2
+    exit 1
+  fi
+}
+
 trim_csv_first() {
   local value="$1"
   value="${value%%,*}"
@@ -249,6 +271,8 @@ native_modeling_binary() {
 
 require_command node
 require_command npm
+assert_node_and_npm_version
+node_command="$(command_source node)"
 
 os_id="$(detect_os)"
 if [[ -z "$default_workspace" ]]; then
@@ -302,9 +326,11 @@ if [[ "$os_id" == "windows" ]]; then
 fi
 
 server_js_for_claude="$(to_claude_path "$server_js")"
+node_command_for_claude="$node_command"
 modeling_command_for_claude="$modeling_command"
 report_dir_for_claude="$report_dir"
 if [[ "$os_id" == "windows" ]]; then
+  node_command_for_claude="$(to_claude_path "$node_command")"
   modeling_command_for_claude="$(to_claude_path "$modeling_command")"
   report_dir_for_claude="$(to_claude_path "$report_dir_unix")"
 fi
@@ -314,6 +340,7 @@ if [[ "$dry_run" -eq 1 ]]; then
 Detected OS: $os_id
 Repo: $repo_dir
 Claude config: $config_path_unix
+Node command: $node_command_for_claude
 Server JS: $server_js_for_claude
 Modeling command: $modeling_command_for_claude
 Modeling args: $modeling_args
@@ -340,6 +367,7 @@ fi
 CONFIG_PATH="$config_path_unix" \
 ENV_PATH="$env_path" \
 MCP_NAME="$mcp_name" \
+NODE_COMMAND="$node_command_for_claude" \
 SERVER_JS="$server_js_for_claude" \
 KNOWN_WORKSPACES="$known_workspaces" \
 DEFAULT_WORKSPACE="$default_workspace" \
@@ -347,7 +375,7 @@ DEFAULT_SEMANTIC_MODEL="$default_semantic_model" \
 MODELING_COMMAND="$modeling_command_for_claude" \
 MODELING_ARGS="$modeling_args" \
 REPORT_DIR="$report_dir_for_claude" \
-node --input-type=module <<'NODE'
+"$node_command" --input-type=module <<'NODE'
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
@@ -376,7 +404,7 @@ if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray
   config.mcpServers = {};
 }
 config.mcpServers[serverName] = {
-  command: "node",
+  command: process.env.NODE_COMMAND,
   args: [process.env.SERVER_JS],
   env
 };

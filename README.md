@@ -18,7 +18,7 @@ This repo wraps Microsoft's official [`powerbi-modeling-mcp`](https://github.com
 
 Use these commands for a one-time setup on a new device.
 
-The setup installs production npm dependencies, uses the prebuilt `dist/server.js`, writes `.env`, updates Claude Desktop `mcpServers`, and configures the Microsoft Modeling MCP command in this Windows order:
+The setup installs production npm dependencies, uses the prebuilt `dist/server.js`, writes `.env`, updates Claude Desktop `mcpServers`, and writes the resolved absolute Node.js command into Claude config. On Windows it configures the Microsoft Modeling MCP command in this order:
 
 ```text
 native .exe -> local node_modules\.bin\powerbi-modeling-mcp.cmd -> npx fallback
@@ -44,6 +44,8 @@ This project does not use REST catalog login or device-login auth.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
+
+The macOS setup resolves `node` with `command -v node` and writes that absolute path, for example `/opt/homebrew/bin/node`, into `claude_desktop_config.json`.
 
 ### macOS - Install Git/Node first, then setup MCP
 
@@ -300,7 +302,7 @@ macOS example — Apple Silicon (M1/M2/M3):
 {
   "mcpServers": {
     "mcp-powerBI-to-report": {
-      "command": "node",
+      "command": "/opt/homebrew/bin/node",
       "args": ["/Users/<you>/mcp-powerBI-to-report/dist/server.js"],
       "env": {
         "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
@@ -321,7 +323,7 @@ macOS example — Intel (x64):
 {
   "mcpServers": {
     "mcp-powerBI-to-report": {
-      "command": "node",
+      "command": "/usr/local/bin/node",
       "args": ["/Users/<you>/mcp-powerBI-to-report/dist/server.js"],
       "env": {
         "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
