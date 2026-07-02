@@ -57,7 +57,7 @@ if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://ra
 $ErrorActionPreference="Stop"; $dir="$HOME\mcp-powerBI-to-report"; $nodeDir=Join-Path $env:TEMP "node-v22.12.0-win-x64"; if (-not (Test-Path "$nodeDir\node.exe")) { throw "Node.js not found: $nodeDir" }; $env:Path="$nodeDir;$env:Path"; node -v; if ($LASTEXITCODE -ne 0) { throw "node failed" }; npm.cmd -v; if ($LASTEXITCODE -ne 0) { throw "npm failed" }; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir; if ($LASTEXITCODE -ne 0) { throw "git clone failed" } }; Set-Location $dir; npm.cmd install --omit=dev --include=optional; if ($LASTEXITCODE -ne 0) { throw "npm install failed" }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\setup-claude-desktop.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall; if ($LASTEXITCODE -ne 0) { throw "Claude Desktop setup failed" }
 ```
 
-Use this verified flow when the machine has a portable Node.js 22 folder extracted at `%TEMP%\node-v22.12.0-win-x64`. It forces PowerShell to use that Node/npm for this installer session, then runs the local setup script with `-SkipInstall` after `npm install` succeeds.
+Use this verified flow when the machine has a portable Node.js 22 folder extracted at `%TEMP%\node-v22.12.0-win-x64`. It forces PowerShell to use that Node/npm for this installer session, then runs the local setup script with `-SkipInstall` after `npm install` succeeds. The setup script writes the resolved absolute `node.exe` path into `claude_desktop_config.json`, so Claude Desktop does not fall back to an older system Node.js later.
 
 Expected success output includes:
 
@@ -76,6 +76,8 @@ $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone ht
 ```
 
 This command does not download scripts from `raw.githubusercontent.com`; it clones the repo when needed, then runs the installer from the local repo. The installer itself handles repo update and dirty-worktree checks. Use it when the active `node` and `npm` on PATH are already Node.js 18+/npm 9+.
+
+If you prepend a portable Node.js folder before running this installer, `install-windows.ps1` preserves the current process PATH when it refreshes Machine/User PATH entries after optional `winget` installs.
 
 `-CorporateNpm` is a temporary compatibility mode for approved test environments. It only sets `npm_config_strict_ssl=false` inside the installer process, cleans npm cache, then removes that override in `finally`. It does not bypass gateway blocks such as `403 MediaTypeBlocked`. The preferred enterprise path is still:
 
@@ -342,7 +344,7 @@ Windows example with native `.exe`:
 {
   "mcpServers": {
     "mcp-powerBI-to-report": {
-      "command": "node",
+      "command": "C:\\Users\\<you>\\Tools\\node-v22.12.0-win-x64\\node.exe",
       "args": ["C:\\Users\\<you>\\mcp-powerBI-to-report\\dist\\server.js"],
       "env": {
         "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
@@ -363,7 +365,7 @@ Windows example with local `.cmd` shim:
 {
   "mcpServers": {
     "mcp-powerBI-to-report": {
-      "command": "node",
+      "command": "C:\\Users\\<you>\\Tools\\node-v22.12.0-win-x64\\node.exe",
       "args": ["C:\\Users\\<you>\\mcp-powerBI-to-report\\dist\\server.js"],
       "env": {
         "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",
@@ -384,7 +386,7 @@ Windows example with `npx` fallback:
 {
   "mcpServers": {
     "mcp-powerBI-to-report": {
-      "command": "node",
+      "command": "C:\\Users\\<you>\\Tools\\node-v22.12.0-win-x64\\node.exe",
       "args": ["C:\\Users\\<you>\\mcp-powerBI-to-report\\dist\\server.js"],
       "env": {
         "POWERBI_KNOWN_WORKSPACES": "your-workspace-name",

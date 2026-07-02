@@ -19,6 +19,17 @@ function Require-Command($Name) {
   }
 }
 
+function Resolve-CommandSource($Name) {
+  $command = Get-Command $Name -ErrorAction SilentlyContinue
+  if (-not $command) {
+    throw "Missing required command: $Name"
+  }
+  if ($command.Source) {
+    return $command.Source
+  }
+  return $command.Path
+}
+
 function Assert-NodeAndNpmVersion {
   $nodeVersionText = (& node -v).Trim()
   if ($LASTEXITCODE -ne 0) { throw "node failed." }
@@ -97,6 +108,7 @@ function Resolve-ModelingCommand($RepoDir, $RequestedCommand) {
 Require-Command node
 Require-Command npm
 Assert-NodeAndNpmVersion
+$NodeCommand = Resolve-CommandSource "node"
 
 $RepoDir = Split-Path -Parent $PSScriptRoot
 if (-not $Workspaces -and $Workspace) {
@@ -130,6 +142,7 @@ if ($DryRun) {
   [ordered]@{
     Repo = $RepoDir
     ClaudeConfig = $ConfigPath
+    NodeCommand = $NodeCommand
     ServerJs = $ServerJs
     ModelingCommand = $ModelingCommand
     ModelingArgs = $ModelingArgs
@@ -184,7 +197,7 @@ if ($Model) {
 }
 
 $mcpServers[$Name] = [ordered]@{
-  command = "node"
+  command = $NodeCommand
   args = @($ServerJs)
   env = $envMap
 }

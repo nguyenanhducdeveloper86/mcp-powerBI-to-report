@@ -72,9 +72,19 @@ function Resolve-LocalModelingCommand($RepoDir) {
 }
 
 function Refresh-Path {
-  $machine = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-  $user = [System.Environment]::GetEnvironmentVariable("Path", "User")
-  $env:Path = "$machine;$user"
+  $current = @(
+    $env:Path -split ";" |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  )
+  $machine = @(
+    [System.Environment]::GetEnvironmentVariable("Path", "Machine") -split ";" |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  )
+  $user = @(
+    [System.Environment]::GetEnvironmentVariable("Path", "User") -split ";" |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+  )
+  $env:Path = (($current + $machine + $user) | Select-Object -Unique) -join ";"
 }
 
 function Try-WingetInstall($Id) {
