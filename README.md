@@ -47,6 +47,16 @@ curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI
 
 The macOS setup resolves `node` with `command -v node` and writes that absolute path, for example `/opt/homebrew/bin/node`, into `claude_desktop_config.json`.
 
+### macOS - clean reinstall existing MCP
+
+Use this when the MCP was already installed on the Mac and you want to remove the old Claude Desktop entry plus the old local repo, then install the latest version from `main`.
+
+```bash
+osascript -e 'quit app "Claude"' 2>/dev/null || true; CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"; if [ -f "$CONFIG" ]; then cp "$CONFIG" "$CONFIG.bak.$(date +%Y%m%d%H%M%S)"; node -e 'const fs=require("fs"); const p=process.argv[1]; const raw=fs.existsSync(p)?fs.readFileSync(p,"utf8").trim():"{}"; const cfg=raw?JSON.parse(raw):{}; if(cfg.mcpServers){ delete cfg.mcpServers["mcp-powerBI-to-report"]; } fs.writeFileSync(p, JSON.stringify(cfg,null,2));' "$CONFIG"; fi; rm -rf "$HOME/mcp-powerBI-to-report"; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
+```
+
+This command creates a timestamped backup of `claude_desktop_config.json` before removing only `mcpServers.mcp-powerBI-to-report`.
+
 ### macOS - Install Git/Node first, then setup MCP
 
 ```bash
