@@ -42,7 +42,7 @@ This project does not use REST catalog login or device-login auth.
 ### macOS - Git and Node already installed
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace "GSM - MKP Data & Reporting"
 ```
 
 The macOS setup resolves `node` with `command -v node` and writes that absolute path, for example `/opt/homebrew/bin/node`, into `claude_desktop_config.json`.
@@ -52,7 +52,7 @@ The macOS setup resolves `node` with `command -v node` and writes that absolute 
 Use this when the MCP was already installed on the Mac and you want to remove the old Claude Desktop entry plus the old local repo, then install the latest version from `main`.
 
 ```bash
-osascript -e 'quit app "Claude"' 2>/dev/null || true; CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"; if [ -f "$CONFIG" ]; then cp "$CONFIG" "$CONFIG.bak.$(date +%Y%m%d%H%M%S)"; node -e 'const fs=require("fs"); const p=process.argv[1]; const raw=fs.existsSync(p)?fs.readFileSync(p,"utf8").trim():"{}"; const cfg=raw?JSON.parse(raw):{}; if(cfg.mcpServers){ delete cfg.mcpServers["mcp-powerBI-to-report"]; } fs.writeFileSync(p, JSON.stringify(cfg,null,2));' "$CONFIG"; fi; rm -rf "$HOME/mcp-powerBI-to-report"; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
+osascript -e 'quit app "Claude"' 2>/dev/null || true; CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"; if [ -f "$CONFIG" ]; then cp "$CONFIG" "$CONFIG.bak.$(date +%Y%m%d%H%M%S)"; node -e 'const fs=require("fs"); const p=process.argv[1]; const raw=fs.existsSync(p)?fs.readFileSync(p,"utf8").trim():"{}"; const cfg=raw?JSON.parse(raw):{}; if(cfg.mcpServers){ delete cfg.mcpServers["mcp-powerBI-to-report"]; } fs.writeFileSync(p, JSON.stringify(cfg,null,2));' "$CONFIG"; fi; rm -rf "$HOME/mcp-powerBI-to-report"; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace "GSM - MKP Data & Reporting"
 ```
 
 This command creates a timestamped backup of `claude_desktop_config.json` before removing only `mcpServers.mcp-powerBI-to-report`.
@@ -60,7 +60,7 @@ This command creates a timestamped backup of `claude_desktop_config.json` before
 ### macOS - Install Git/Node first, then setup MCP
 
 ```bash
-if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
+if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace "GSM - MKP Data & Reporting"
 ```
 
 ### Windows PowerShell - recommended one-command setup
@@ -141,7 +141,7 @@ Use mcp-powerBI-to-report to diagnose the local Power BI MCP setup.
 Then test Power BI access:
 
 ```text
-Use mcp-powerBI-to-report to list semantic models in workspace GSM_MCP_POC_WORKSPACE.
+Use mcp-powerBI-to-report to list semantic models in workspace GSM - MKP Data & Reporting.
 ```
 
 ## Manual Install
@@ -187,7 +187,7 @@ The fastest path is the bundled Claude Desktop setup script. It detects macOS vs
 From an existing clone:
 
 ```bash
-bash scripts/setup-claude-desktop.sh --workspace test-mcp
+bash scripts/setup-claude-desktop.sh --workspace "GSM - MKP Data & Reporting"
 ```
 
 From a fresh machine:
@@ -195,13 +195,13 @@ From a fresh machine:
 ```bash
 git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git
 cd mcp-powerBI-to-report
-bash scripts/setup-claude-desktop.sh --workspace test-mcp
+bash scripts/setup-claude-desktop.sh --workspace "GSM - MKP Data & Reporting"
 ```
 
 Or one command that clones to `~/mcp-powerBI-to-report` when needed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace test-mcp
+curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace "GSM - MKP Data & Reporting"
 ```
 
 Windows should run the same command from Git Bash. The script writes Windows-native paths into Claude Desktop config and prefers:
@@ -239,7 +239,7 @@ powershell -ExecutionPolicy Bypass -File .\setup-claude-desktop.ps1 -Workspace G
 Optional npm alias:
 
 ```bash
-npm run setup:claude-desktop -- --workspace test-mcp
+npm run setup:claude-desktop -- --workspace "GSM - MKP Data & Reporting"
 ```
 
 PowerShell npm alias:
@@ -450,7 +450,7 @@ Use mcp-powerBI-to-report to diagnose the local Power BI MCP setup.
 If diagnostics are clean, ask Claude:
 
 ```text
-Use mcp-powerBI-to-report to list semantic models in workspace test-mcp.
+Use mcp-powerBI-to-report to list semantic models in workspace GSM - MKP Data & Reporting.
 ```
 
 The workspace name must be known and provided. If the workspace/model is not provided, Claude should ask the user for the workspace name instead of guessing.
@@ -458,8 +458,8 @@ The workspace name must be known and provided. If the workspace/model is not pro
 For a CEO workflow, set:
 
 ```env
-POWERBI_KNOWN_WORKSPACES=test-mcp
-POWERBI_DEFAULT_WORKSPACE=test-mcp
+POWERBI_KNOWN_WORKSPACES="GSM - MKP Data & Reporting"
+POWERBI_DEFAULT_WORKSPACE="GSM - MKP Data & Reporting"
 # Optional fallback only. Prefer letting Claude choose from workspace schema.
 # POWERBI_DEFAULT_SEMANTIC_MODEL=hospital
 # Optional folder for generated HTML reports.
@@ -515,14 +515,14 @@ question
   "joinKeys": ["Month", "Province", "Model"],
   "queries": [
     {
-      "workspaceName": "test-mcp",
+      "workspaceName": "GSM - MKP Data & Reporting",
       "semanticModelName": "sale_vehicle-vf",
       "evidenceRole": "sales",
       "evidence": ["Revenue", "UnitsSold", "Model", "Province"],
       "query": "EVALUATE ..."
     },
     {
-      "workspaceName": "test-mcp",
+      "workspaceName": "GSM - MKP Data & Reporting",
       "semanticModelName": "marketing-vf",
       "evidenceRole": "marketing",
       "evidence": ["CampaignSpend", "Leads", "ConversionRate"],

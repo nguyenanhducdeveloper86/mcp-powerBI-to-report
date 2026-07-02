@@ -10,7 +10,7 @@ Usage:
 
 Options:
   --workspace <name>          Default workspace and known workspace for a single-workspace setup
-  --workspaces <csv>          Known Power BI/Fabric workspaces. Default: POWERBI_KNOWN_WORKSPACES or test-mcp
+  --workspaces <csv>          Known Power BI/Fabric workspaces. Default: POWERBI_KNOWN_WORKSPACES or GSM - MKP Data & Reporting
   --model <name>              Optional default semantic model fallback. Default: POWERBI_DEFAULT_SEMANTIC_MODEL
   --report-dir <path>         HTML report output folder. Default: ~/powerbi-report-output
   --config <path>             Claude Desktop config path override
@@ -22,8 +22,8 @@ Options:
   -h, --help                  Show this help
 
 Examples:
-  bash scripts/setup-claude-desktop.sh --workspace test-mcp
-  curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace test-mcp
+  bash scripts/setup-claude-desktop.sh --workspace "GSM - MKP Data & Reporting"
+  curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace "GSM - MKP Data & Reporting"
 EOF
 }
 
@@ -44,7 +44,7 @@ else
   script_dir="$repo_dir/scripts"
 fi
 mcp_name="mcp-powerBI-to-report"
-known_workspaces="${POWERBI_KNOWN_WORKSPACES:-test-mcp}"
+known_workspaces="${POWERBI_KNOWN_WORKSPACES:-GSM - MKP Data & Reporting}"
 default_workspace="${POWERBI_DEFAULT_WORKSPACE:-}"
 default_semantic_model="${POWERBI_DEFAULT_SEMANTIC_MODEL:-}"
 report_dir="${POWERBI_REPORT_OUTPUT_DIR:-}"
