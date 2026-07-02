@@ -38,13 +38,31 @@ curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI
 if ! command -v brew >/dev/null 2>&1; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; fi; eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"; brew install git node; curl -fsSL https://raw.githubusercontent.com/nguyenanhducdeveloper86/mcp-powerBI-to-report/main/scripts/setup-claude-desktop.sh | bash -s -- --workspace GSM_MCP_POC_WORKSPACE
 ```
 
-### Windows PowerShell - recommended for company devices
+### Windows PowerShell - company device with portable Node 22
+
+```powershell
+$ErrorActionPreference="Stop"; $dir="$HOME\mcp-powerBI-to-report"; $nodeDir=Join-Path $env:TEMP "node-v22.12.0-win-x64"; if (-not (Test-Path "$nodeDir\node.exe")) { throw "Node.js not found: $nodeDir" }; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir; if ($LASTEXITCODE -ne 0) { throw "git clone failed" } } else { Set-Location $dir; git pull; if ($LASTEXITCODE -ne 0) { throw "git pull failed. Resolve local changes before continuing." } }; Set-Location $dir; $env:Path="$nodeDir;$env:Path"; node -v; if ($LASTEXITCODE -ne 0) { throw "node failed" }; npm.cmd -v; if ($LASTEXITCODE -ne 0) { throw "npm failed" }; npm.cmd install --omit=dev --include=optional; if ($LASTEXITCODE -ne 0) { throw "npm install failed" }; powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\setup-claude-desktop.ps1" -Workspace "GSM_MCP_POC_WORKSPACE" -SkipInstall; if ($LASTEXITCODE -ne 0) { throw "Claude Desktop setup failed" }
+```
+
+Use this verified flow when the machine has a portable Node.js 22 folder extracted at `%TEMP%\node-v22.12.0-win-x64`. It forces PowerShell to use that Node/npm for this installer session, then runs the local setup script with `-SkipInstall` after `npm install` succeeds.
+
+Expected success output includes:
+
+```text
+Claude Desktop config updated: C:\Users\<you>\AppData\Roaming\Claude\claude_desktop_config.json
+Local env written: C:\Users\<you>\mcp-powerBI-to-report\.env
+Restart Claude Desktop completely, then use MCP server: mcp-powerBI-to-report
+```
+
+Close Claude Desktop completely before running setup. Use Quit from the system tray, not just the window close button, so Claude does not overwrite `claude_desktop_config.json` while setup is editing it.
+
+### Windows PowerShell - installer script for company devices
 
 ```powershell
 $dir="$HOME\mcp-powerBI-to-report"; if (!(Test-Path "$dir\.git")) { git clone https://github.com/nguyenanhducdeveloper86/mcp-powerBI-to-report.git $dir } else { cd $dir; git pull }; cd $dir; powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Workspace "GSM_MCP_POC_WORKSPACE" -CorporateNpm -Clean
 ```
 
-This is the default Windows command for Vingroup/corporate machines. It does not download scripts from `raw.githubusercontent.com`; it uses `git clone` / `git pull`, then runs the installer from the local repo.
+This command does not download scripts from `raw.githubusercontent.com`; it uses `git clone` / `git pull`, then runs the installer from the local repo. Use it when the active `node` and `npm` on PATH are already Node.js 18+/npm 9+.
 
 ### Windows PowerShell - standard network
 
