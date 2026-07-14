@@ -1535,7 +1535,7 @@ function renderDashboardHtml(input) {
   const chartTitle = getChartTitle(intent, input.analysis);
 
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-responsive="required">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1548,6 +1548,7 @@ function renderDashboardHtml(input) {
       --green: #08875d; --blue: #1769aa; --amber: #b75f00; --red: #c5352b;
     }
     * { box-sizing: border-box; }
+    html { overflow-x: hidden; }
     body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--canvas); color: var(--ink); }
     main { max-width: 1280px; margin: 0 auto; padding: 28px; }
     header { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 20px; align-items: start; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 18px; }
@@ -1660,18 +1661,43 @@ function renderDashboardHtml(input) {
     td.number { text-align: right; font-variant-numeric: tabular-nums; }
     tr:last-child td { border-bottom: 0; }
     .query { margin-top: 14px; padding: 12px; border-radius: 8px; background: #101828; color: #f2f4f7; overflow: auto; font-size: 12px; line-height: 1.45; }
+    /* Executive visual system: restrained navy, strong hierarchy, compact evidence blocks. */
+    body { background: #f7f9fc; letter-spacing: -.01em; }
+    main { padding: 36px 28px 48px; }
+    header { border-bottom: 0; padding: 24px 28px; margin-bottom: 22px; background: linear-gradient(135deg,#102a43,#1769aa); color: #fff; border-radius: 16px; box-shadow: 0 12px 30px rgba(16,42,67,.16); }
+    header p, .meta { color: rgba(255,255,255,.78); }
+    h1 { font-size: clamp(24px,3vw,36px); letter-spacing: -.035em; }
+    h2 { color: #102a43; letter-spacing: -.02em; }
+    .card, .panel { border-color: #e5eaf1; border-radius: 14px; box-shadow: 0 5px 18px rgba(16,42,67,.06); }
+    .card { min-height: 126px; }
+    .value { color: #102a43; }
+    .label { letter-spacing: .08em; }
+    .insight, .heat-cell, .alert-card { border-radius: 12px; box-shadow: 0 3px 12px rgba(16,42,67,.04); }
+    .panel { padding: 22px; }
+    th { background: #102a43; color: #fff; }
+    .native-card, .readout-item, .mini-card, .decision-card { border-radius: 12px; }
+    /* Responsive output is mandatory: desktop, tablet, and mobile layouts. */
     @media (max-width: 900px) {
       main { padding: 18px; }
       header, .content, .exec-grid, .analysis-grid, .dataset-grid, .native-grid { grid-template-columns: 1fr; }
       .meta { text-align: left; }
+      main { width: 100%; }
+      .content, .exec-grid, .analysis-grid, .dataset-grid { min-width: 0; }
+      .panel, .card, .native-card { max-width: 100%; }
       .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 560px) {
+      main { padding: 12px; }
+      header { gap: 10px; }
+      .panel { padding: 14px; }
+      .card { min-height: 96px; padding: 12px; }
+      .value { font-size: 22px; }
       .grid, .readout, .mini-cards, .dimension-grid, .heat-grid, .alert-grid, .source-list, .decision-cards, .waterfall, .native-legend, .geo-cards { grid-template-columns: 1fr; }
       .bar-row { grid-template-columns: 1fr; gap: 6px; }
       .visual-row { grid-template-columns: 1fr; }
       .visual-metric { text-align: left; }
       h1 { font-size: 24px; }
+      table { min-width: 560px; }
     }
     @media print {
       @page { size: A4; margin: 12mm; }
